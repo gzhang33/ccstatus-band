@@ -13,7 +13,7 @@ last   58 · 16.8k · 138k · 97.3%
 sess   55 · 726 · 138k · 97.3% · 5.0M
 ```
 
-Same field, same column, on every row, so the eye reads one column down instead of hunting: each value is right-aligned on the widest in its column, and the row that comes and goes keeps its place.
+Same field, same column, on every row, so the eye reads one column down instead of hunting: each value is right-aligned on the widest in its column, and the row that comes and goes keeps its place. The rows are drawn in the surface's monospaced face with tabular digits — without that, a column of spaces lines up nothing.
 
 ## What each row means
 

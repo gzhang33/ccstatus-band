@@ -281,8 +281,11 @@ export const register: Register = on => {
 
     // Only sess stays dim: live is the value the person is watching, and dim
     // text on the band's background reads as blank.
+    // `mono` is what makes the padding line up: the desktop's body face is
+    // proportional, where a column of spaces is not a column of anything.
+    // `tabular` pins digit widths, so a value that ticks does not shift.
     const row = (label: string, i: number) => (
-      <Text dimColor={label === "sess"}>
+      <Text mono tabular dimColor={label === "sess"}>
         {pad(label, 5)}
         {line(cols.map(c => c[i]))}
       </Text>
@@ -290,7 +293,7 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column">
-        <Text dimColor>
+        <Text mono tabular dimColor>
           {pad("", 5)}
           {cols.map(c => c[0]).join(" · ")}
         </Text>

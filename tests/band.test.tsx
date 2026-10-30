@@ -193,6 +193,8 @@ test('an all-zero usage turn leaves the band alone', { timeoutMs: 15000 }, async
   expect(tree.props.flexDirection).toBe('column')
   // A header row and three data rows; the live row never drops out.
   expect(tree.children).toHaveLength(4)
+  // The column padding only lines up in a fixed-width face.
+  for (const row of tree.children) expect(row.props.mono).toBe(true)
 })
 
 test('band estimates a live rate while a response streams', { timeoutMs: 15000 }, async ($, on) => {
