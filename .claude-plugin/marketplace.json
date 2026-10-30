@@ -1,0 +1,15 @@
+{
+  "name": "ccstatus-band",
+  "description": "Mods for the Claude Code desktop app.",
+  "owner": {
+    "name": "gianni",
+    "url": "https://github.com/gzhang33"
+  },
+  "plugins": [
+    {
+      "name": "ccstatus-band",
+      "source": "./",
+      "description": "A table of live and per-turn token throughput, tokens and prompt-cache hit rate in the band above the Claude Code prompt"
+    }
+  ]
+}

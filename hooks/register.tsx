@@ -1,0 +1,251 @@
+import { atom, read, update } from 'claude-code'
+import type { Register } from 'claude-code'
+
+import type { Band, Cur, LiveStat, Tally } from '../types'
+
+const band = atom({ plugin: 'ccstatus-band', key: 'band' } as const, null)
+const tally = atom({ plugin: 'ccstatus-band', key: 'tally' } as const, null)
+const cur = atom({ plugin: 'ccstatus-band', key: 'cur' } as const, null)
+
+// Decode-only throughput, the way inference benchmarks report it: generated
+// tokens over the span from the first generated chunk to the stop chunk, so
+// prefill (TTFT) and tool execution stay out of the rate.
+const rate = (tokens: number, ms: number) => (ms > 0 ? (tokens / ms) * 1000 : 0)
+// Whole-percent rounding collapses every real hit above 99.5 to "100"; keep a
+// decimal so a 163k-token prompt with 300 uncached tokens still reads 99.8.
+const pct = (cached: number, denom: number) => (denom > 0 ? (cached / denom) * 100 : 0)
+const fmtRate = (v: number) => (v >= 10 ? String(Math.round(v)) : v.toFixed(1))
+const fmtTokens = (v: number) => {
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
+  // 1500 rounded to "2k" reads 33% wrong; keep a decimal until 10k, where the
+  // rounding error stops mattering.
+  if (v >= 10000) return `${Math.round(v / 1000)}k`
+  if (v >= 1000) return `${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return String(Math.round(v))
+}
+
+// Left- or right-pads a cell to its column's width, so every row and every
+// redraw puts the same field in the same place.
+const pad = (s: string, n: number) => (s.length >= n ? s : s + ' '.repeat(n - s.length))
+const cell = (v: string, w: number) => v.padStart(w)
+
+// A row is joined only from the columns that carry a value on it plus every
+// column that carries one on another row, so a live row is "tok/s · out" and
+// the ones below keep the same columns. Columns the row lacks stay blank, at
+// their width, and trailing blanks are cut.
+const line = (cells: string[]) => {
+  const out = cells.join(' · ')
+  return out.replace(/[\s·]+$/, '')
+}
+const pctF = (v: number) => v.toFixed(1)
+
+// Nothing in a streamed chunk counts tokens: each response reports its counts
+// once, at its stop chunk, and that is the last thing to arrive. So the live
+// rate counts CJK characters as one token and everything else as a quarter,
+// and the stop chunk replaces the estimate with the API's own numbers.
+// ponytail: rough tokenizer; swap in a real one only if the live figure ever
+// needs to be exact.
+const CJK = /[　-鿿가-힯＀-￯]/
+const est = (s: string) => {
+  let n = 0
+  for (const ch of s) n += CJK.test(ch) ? 1 : 0.25
+  return n
+}
+
+export const register: Register = on => {
+  on('turn.step', async function* ($, e, next) {
+    // A subagent's steps are its own loop; the band reports the main one.
+    if (e.agentId) {
+      yield* next(e)
+      return
+    }
+
+    let first = 0
+    let last = 0
+    let streamed = 0
+    let shownAt = 0
+    // This one response's counts, as its stop chunk reports them.
+    let out = 0
+    let input = 0
+    let cached = 0
+    let written = 0
+
+    for await (const c of next(e)) {
+      const now = await $.clock.now()
+
+      // Every generated block counts, tool calls included.
+      if (!first && (c.kind === 'text' || c.kind === 'thinking' || c.kind === 'tool')) {
+        first = now
+      }
+
+      if (c.kind === 'text' || c.kind === 'thinking') streamed += est(c.text)
+      else if (c.kind === 'input') streamed += est(c.json)
+
+      if (c.kind === 'stop') {
+        last = now
+        out = c.usage?.output_tokens ?? 0
+        input = c.usage?.input_tokens ?? 0
+        cached = c.usage?.cache_read_input_tokens ?? 0
+        written = c.usage?.cache_creation_input_tokens ?? 0
+      } else if (first && now - first >= 250 && now - shownAt >= 250) {
+        shownAt = now
+        const live: LiveStat = {
+          tokPerSec: rate(streamed, now - first),
+          out: streamed,
+          seconds: (now - first) / 1000,
+        }
+        await update($, band, b => (b === null ? b : { ...b, live }))
+      }
+
+      yield c
+    }
+
+    // The response is done; a tool run or the next step is not a decode window.
+    await update($, band, b => (b === null || b.live === null ? b : { ...b, live: null }))
+
+    if (!first || !last) {
+      return
+    }
+
+    // A turn is several requests, and `turn.complete.usage` reports only the
+    // last of them, so the turn's counts are summed here, where each request
+    // states its own.
+    const prev = await read($, cur)
+    const base: Cur = prev?.turnId === e.turnId ? prev : { turnId: e.turnId, out: 0, ms: 0 }
+
+    await update($, cur, () => ({
+      turnId: e.turnId,
+      out: (base.out ?? 0) + out,
+      ms: (base.ms ?? 0) + Math.max(0, last - first),
+      input: (base.input ?? 0) + input,
+      cached: (base.cached ?? 0) + cached,
+      written: (base.written ?? 0) + written,
+    }))
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId) {
+      return next(e)
+    }
+
+    const step = await read($, cur)
+    const mine = step?.turnId === e.turnId ? step : null
+    const usage = e.usage
+    // No step heard (an interrupt, a step this hook was not above): the turn's
+    // own report is all there is, and it covers its last request alone.
+    const turn: Cur = mine ?? {
+      turnId: e.turnId,
+      out: usage?.output_tokens ?? 0,
+      ms: 0,
+      input: usage?.input_tokens ?? 0,
+      cached: usage?.cache_read_input_tokens ?? 0,
+      written: usage?.cache_creation_input_tokens ?? 0,
+    }
+    const denom = (turn.input ?? 0) + (turn.cached ?? 0) + (turn.written ?? 0)
+
+    // This gateway answers some turns with nothing counted; taken at face value
+    // such a turn would draw "0 tok/s" over the real one.
+    if ((turn.out ?? 0) + denom === 0) {
+      return next(e)
+    }
+
+    // Values written by the earlier band shape carry none of these counters.
+    const prev = (await read($, tally)) as Partial<Tally> | null
+    const sum: Tally = {
+      out: (prev?.out ?? 0) + (turn.out ?? 0),
+      ms: (prev?.ms ?? 0) + (turn.ms ?? 0),
+      input: (prev?.input ?? 0) + (turn.input ?? 0),
+      cached: (prev?.cached ?? 0) + (turn.cached ?? 0),
+      written: (prev?.written ?? 0) + (turn.written ?? 0),
+      turns: (prev?.turns ?? 0) + 1,
+    }
+    const shown: Band = {
+      live: null,
+      // No decode window (interrupt, API error): keep the last band that had one.
+      last:
+        (turn.ms ?? 0) > 0
+          ? {
+              tokPerSec: rate(turn.out ?? 0, turn.ms ?? 0),
+              hitPct: pct(turn.cached ?? 0, denom),
+              input: turn.input ?? 0,
+              out: turn.out ?? 0,
+              seconds: (turn.ms ?? 0) / 1000,
+            }
+          : ((await read($, band))?.last ?? {
+              tokPerSec: 0,
+              hitPct: pct(turn.cached ?? 0, denom),
+              input: turn.input ?? 0,
+              out: turn.out ?? 0,
+              seconds: 0,
+            }),
+      session: {
+        tokPerSec: rate(sum.out, sum.ms),
+        hitPct: pct(sum.cached, sum.input + sum.cached + sum.written),
+        input: sum.input,
+        out: sum.out,
+        total: sum.input + sum.cached + sum.written + sum.out,
+        turns: sum.turns,
+      },
+    }
+
+    await update($, tally, () => sum)
+    await update($, band, () => shown)
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const shown = await read($, band)
+
+    if (e.props.hasSurvey || shown === null) {
+      return next(e)
+    }
+
+    // Values written by the earlier band shape lack live and the token totals.
+    const live = shown.live ?? null
+    const num = (v: number | undefined) => v ?? 0
+    const mainLoop = shown.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, seconds: 0 }
+    const sess = shown.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0 }
+
+    const { Box, Text } = $.ui.resolve(e)
+
+    // Three rows, one column per field: tok/s, out, in, hit/cached, and sess's
+    // extra (total) last. Each cell is right-aligned on the widest of its
+    // column so the values line up down the columns, and a row without a field
+    // keeps its column as blanks. The label sits in a fixed 5-wide first
+    // column; a row that comes and goes (live, between steps) keeps its row.
+    // Each column: its header, and the live / last / sess cell for it.
+    const col = (name: string, a: string, b: string, c: string) => {
+      const w = Math.max(name.length, a.length, b.length, c.length)
+      return [cell(name, w), cell(a, w), cell(b, w), cell(c, w)]
+    }
+    const cols = [
+      col("tok/s", `~${fmtRate(num(live?.tokPerSec))}`, fmtRate(num(mainLoop.tokPerSec)), fmtRate(num(sess.tokPerSec))),
+      col("out", fmtTokens(num(live?.out)), fmtTokens(num(mainLoop.out)), fmtTokens(num(sess.out))),
+      col("in", "", fmtTokens(num(mainLoop.input)), fmtTokens(num(sess.input))),
+      col("hit", "", `${pctF(num(mainLoop.hitPct))}%`, `${pctF(num(sess.hitPct))}%`),
+      col("total", "", "", fmtTokens(num(sess.total))),
+    ] as const
+
+    // Only sess stays dim: live is the value the person is watching, and dim
+    // text on the band's background reads as blank.
+    const row = (label: string, i: number) => (
+      <Text dimColor={label === "sess"}>
+        {pad(label, 5)}
+        {line(cols.map(c => c[i]))}
+      </Text>
+    )
+
+    return (
+      <Box flexDirection="column">
+        <Text dimColor>
+          {pad("", 5)}
+          {cols.map(c => c[0]).join(" · ")}
+        </Text>
+        {row("live", 1)}
+        {row("last", 2)}
+        {row("sess", 3)}
+      </Box>
+    )
+  })
+}
