@@ -21,7 +21,7 @@ Same field, same column, on every row, so the eye reads one column down instead 
 | --- | --- | --- |
 | `live` | `tok/s` | Decode rate of the reply streaming right now, **estimated** from the characters received (see the note below) |
 | | `out` | Estimated tokens of that reply so far |
-| `last` | `tok/s` | Decode rate of the turn just finished: output tokens over the time spent generating them, tool runs excluded |
+| `last` | `tok/s` | Decode rate of the turn just finished: output tokens over the time spent generating them, tool runs and prefill excluded |
 | | `out` | Tokens the model generated in that turn |
 | | `in` | Prompt tokens that were **not** served from the prompt cache |
 | | `hit` | Share of the turn's prompt tokens that came from the cache |
@@ -76,7 +76,8 @@ The layout:
 ## Limitations
 
 - A field wider than its column (a `10.5M` total against a `5.0M` session) pushes that column one character right for the rest of the session.
-- `live` disappears at the end of each response — a tool run is not a decode window — and the `last` row keeps its place meanwhile.
+- `live` clears when a response ends and comes back with the next one's first chunk; between them the `last` row keeps its place.
+- Nothing draws during prefill or while a gateway queues the request: the stream has no chunk to count then, so the band shows the previous state until the first token arrives.
 - No cost figure: it needs a price table per model, and this one is used behind several gateways.
 
 ## License

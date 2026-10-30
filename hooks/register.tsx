@@ -6,11 +6,12 @@ import type { Band, Cur, LiveStat, Tally } from '../types'
 const band = atom({ plugin: 'ccstatus-band', key: 'band' } as const, null)
 const tally = atom({ plugin: 'ccstatus-band', key: 'tally' } as const, null)
 const cur = atom({ plugin: 'ccstatus-band', key: 'cur' } as const, null)
+let seq = 0
 
 // Decode-only throughput, the way inference benchmarks report it: generated
 // tokens over the span from the first generated chunk to the stop chunk, so
 // prefill (TTFT) and tool execution stay out of the rate.
-const rate = (tokens: number, ms: number) => (ms > 0 ? (tokens / ms) * 1000 : 0)
+const rate = (tokens: number, ms: number) => (ms >= 100 ? (tokens / ms) * 1000 : 0)
 // Whole-percent rounding collapses every real hit above 99.5 to "100"; keep a
 // decimal so a 163k-token prompt with 300 uncached tokens still reads 99.8.
 const pct = (cached: number, denom: number) => (denom > 0 ? (cached / denom) * 100 : 0)
@@ -53,6 +54,11 @@ const est = (s: string) => {
 }
 
 export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    seq = -1
+    return next(e)
+  })
+
   on('turn.step', async function* ($, e, next) {
     // A subagent's steps are its own loop; the band reports the main one.
     if (e.agentId) {
@@ -63,7 +69,14 @@ export const register: Register = on => {
     let first = 0
     let last = 0
     let streamed = 0
-    let shownAt = 0
+    // First show is immediate, so the live row appears with the first chunk.
+    let shownAt = -1e15
+    // The wait before the first generated chunk, in ms: prefill and the
+    // gateway's queueing, which no streaming chunk can show while they last.
+    const askedAt = Date.now()
+    let ttftMs = 0
+    // Whether a step of this turn is already counting it.
+    const curTurn = (await read($, cur))?.turnId === e.turnId
     // This one response's counts, as its stop chunk reports them.
     let out = 0
     let input = 0
@@ -71,11 +84,32 @@ export const register: Register = on => {
     let written = 0
 
     for await (const c of next(e)) {
-      const now = await $.clock.now()
+      // Local clock: a host round trip per chunk would be more traffic than the
+      // tokens it measures. ponytail: assumes host and plugin share a clock;
+      // a monotonic source matters only if the band ever runs over a host bridge.
+      const now = Date.now()
 
-      // Every generated block counts, tool calls included.
+      // The first generated block: everything before it was prefill (the
+      // prompt being read) or the gateway queueing the request, and neither is
+      // a decode window, so `last` reports that wait on its own.
       if (!first && (c.kind === 'text' || c.kind === 'thinking' || c.kind === 'tool')) {
         first = now
+        ttftMs = Math.max(0, now - askedAt)
+        // The session's first step has no turn open yet: count from its first
+        // chunk, so its rate is not measured from the day's epoch. ponytail:
+        // keyed on the step index, since a hook cannot tell a stale turn id
+        // from this one while only writing; reset on session start.
+        if (!curTurn && seq !== e.index) {
+          seq = e.index
+          await update($, cur, () => ({
+            turnId: e.turnId,
+            out: 0,
+            ms: 0,
+            input: 0,
+            cached: 0,
+            written: 0,
+          }))
+        }
       }
 
       if (c.kind === 'text' || c.kind === 'thinking') streamed += est(c.text)
@@ -87,21 +121,31 @@ export const register: Register = on => {
         input = c.usage?.input_tokens ?? 0
         cached = c.usage?.cache_read_input_tokens ?? 0
         written = c.usage?.cache_creation_input_tokens ?? 0
-      } else if (first && now - first >= 250 && now - shownAt >= 250) {
+      } else if (first && now - shownAt >= 250) {
         shownAt = now
         const live: LiveStat = {
           tokPerSec: rate(streamed, now - first),
           out: streamed,
           seconds: (now - first) / 1000,
         }
-        await update($, band, b => (b === null ? b : { ...b, live }))
+        await update($, band, b => ({
+          last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, seconds: 0 },
+          session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0 },
+          live,
+        }))
       }
 
       yield c
     }
 
-    // The response is done; a tool run or the next step is not a decode window.
-    await update($, band, b => (b === null || b.live === null ? b : { ...b, live: null }))
+    // A tool run or the next step is not a decode window; only the row clears.
+    // Written even with no band yet, so the first turn's rows exist by the time
+    // its first chunk streams.
+    await update($, band, b => ({
+      last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, seconds: 0 },
+      session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0 },
+      live: null,
+    }))
 
     if (!first || !last) {
       return
@@ -111,7 +155,15 @@ export const register: Register = on => {
     // last of them, so the turn's counts are summed here, where each request
     // states its own.
     const prev = await read($, cur)
-    const base: Cur = prev?.turnId === e.turnId ? prev : { turnId: e.turnId, out: 0, ms: 0 }
+    const base: Cur = {
+      turnId: e.turnId,
+      out: prev?.turnId === e.turnId ? prev.out : 0,
+      ms: prev?.turnId === e.turnId ? prev.ms : 0,
+      input: prev?.turnId === e.turnId ? prev.input : 0,
+      cached: prev?.turnId === e.turnId ? prev.cached : 0,
+      written: prev?.turnId === e.turnId ? prev.written : 0,
+      ttftMs,
+    }
 
     await update($, cur, () => ({
       turnId: e.turnId,

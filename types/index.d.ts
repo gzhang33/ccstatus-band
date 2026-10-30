@@ -48,6 +48,8 @@ export type Cur = {
   input: number
   cached: number
   written: number
+  /** Wait before this step's first generated chunk, in ms. */
+  ttftMs: number
 }
 
 declare module 'claude-code' {

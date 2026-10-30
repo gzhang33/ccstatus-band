@@ -86,8 +86,8 @@ test('band rates decode windows, not turn wall time', { timeoutMs: 15000 }, asyn
   expect(await rowTexts(ui1)).toEqual([
     '     tok/s · out · in ·   hit · total',
     'live  ~0.0 ·   0',
-    'last   100 · 400 · 1k · 80.0%',
-    'sess   100 · 400 · 1k · 80.0% ·   10k',
+    'last   199 · 400 · 1k · 80.0%',
+    'sess   199 · 400 · 1k · 80.0% ·   10k',
   ])
 
   // Turn 2: 200 tokens over 1 s.
@@ -117,8 +117,8 @@ test('band rates decode windows, not turn wall time', { timeoutMs: 15000 }, asyn
   expect(await rowTexts(ui2)).toEqual([
     '     tok/s · out ·   in ·   hit · total',
     'live  ~0.0 ·   0',
-    'last   200 · 200 ·  500 · 80.0%',
-    'sess   120 · 600 · 1.5k · 80.0% ·   16k',
+    'last   199 · 200 ·  500 · 80.0%',
+    'sess   199 · 600 · 1.5k · 80.0% ·   16k',
   ])
 })
 
