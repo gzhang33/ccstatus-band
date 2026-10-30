@@ -8,9 +8,9 @@ A small table above the prompt of the Claude Code desktop app. Three rows: the p
 
 ```
      tok/s · ttft ·   out ·   in ·   hit · calls · total
-live    58 · 1.2s · 16.8k · 138k · 97.8% ·     7 ·  6.5M
-last    51 · 1.9s ·  9.2k ·  96k · 98.3% ·     4 ·  5.1M
-sess    55 · 1.4s ·  410M ·  12M · 98.1% ·   133 ·  411M
+live   218 · 6.2s ·  4.3k ·  6.6k · 99.9% ·    19 ·  9.2M
+last    97 · 5.0s ·    49 ·  2.3k · 99.5% ·     1 ·  474k
+sess   199 · 5.0s ·   60k ·  116k · 99.9% ·   226 · 94.1M
 ```
 
 Every field keeps its column, so you read one column down instead of hunting. Values are right-aligned on the widest in their column, and no row appears or disappears. The rows use the surface's monospaced face with tabular digits; in a proportional face, padded spaces line nothing up.
