@@ -8,7 +8,7 @@ A mod for the Claude Code desktop app that draws a small table in the band above
 
 ```
      tok/s · ttft ·   out ·   in ·   hit · turn · total
-live   ~96 · — ·   726 · — · — · — · —
+live   ~96 ·    — ·   726 ·    — ·     — ·    7 ·     —
 last    58 · 1.2s · 16.8k · 138k · 97.8% ·    7 ·  6.5M
 sess    55 · 1.4s ·  410M ·  12M · 98.1% ·    7 ·  411M
 ```

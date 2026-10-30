@@ -34,8 +34,7 @@ const cell = (v: string, w: number) => v.padStart(w)
 // column that carries one on another row, so a live row is "tok/s · out" and
 // the ones below keep the same columns. Columns the row lacks stay blank, at
 // their width, and trailing blanks are cut.
-// A cell a row has no value for keeps its column as a dash.
-const line = (cells: string[]) => cells.map(v => (v.trim() ? v : '—')).join(' · ')
+const line = (cells: string[]) => cells.join(' · ')
 const pctF = (v: number) => v.toFixed(1)
 
 // Nothing in a streamed chunk counts tokens: each response reports its counts
@@ -336,9 +335,12 @@ export const register: Register = on => {
     // keeps its column as blanks. The label sits in a fixed 5-wide first
     // column; a row that comes and goes (live, between steps) keeps its row.
     // Each column: its header, and the live / last / sess cell for it.
+    // A row with no value for a column keeps that column's width, with a dash
+    // in it: the columns after it must not slide left.
     const col = (name: string, a: string, b: string, c: string) => {
       const w = Math.max(name.length, a.length, b.length, c.length)
-      return [cell(name, w), cell(a, w), cell(b, w), cell(c, w)]
+      const at = (v: string) => (v ? cell(v, w) : '—'.padStart(w))
+      return [cell(name, w), at(a), at(b), at(c)]
     }
     const cols = [
       col("tok/s", live ? `~${fmtRate(num(live.tokPerSec))}` : "", fmtRate(num(mainLoop.tokPerSec)), fmtRate(num(sess.tokPerSec))),
