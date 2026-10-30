@@ -30,10 +30,7 @@ const fmtTokens = (v: number) => {
 const pad = (s: string, n: number) => (s.length >= n ? s : s + ' '.repeat(n - s.length))
 const cell = (v: string, w: number) => v.padStart(w)
 
-// A row is joined only from the columns that carry a value on it plus every
-// column that carries one on another row, so a live row is "tok/s · out" and
-// the ones below keep the same columns. Columns the row lacks stay blank, at
-// their width, and trailing blanks are cut.
+// One row: its cells, already padded to their columns, joined by the divider.
 const line = (cells: string[]) => cells.join(' · ')
 const pctF = (v: number) => v.toFixed(1)
 
@@ -63,7 +60,7 @@ const ZERO_SESS: SessionStat = { tokPerSec: 0, hitPct: 0, input: 0, out: 0, tota
 const bandOf = (
   done: Partial<Tally> | null,
   open: Cur | null,
-  extra: { out: number; ms: number },
+  extra: { out: number; ms: number; ttftMs: number },
   live: LiveStat | null,
 ): Band => {
   const t = {
@@ -81,7 +78,8 @@ const bandOf = (
     input: open?.input ?? 0,
     cached: open?.cached ?? 0,
     written: open?.written ?? 0,
-    ttftMs: open?.ttftMs ?? 0,
+    // The turn's first wait: an earlier step's, else this reply's once it starts.
+    ttftMs: open?.ttftMs || extra.ttftMs,
   }
   const prompt = c.input + c.cached + c.written
   // A streaming reply is a turn running even before its first step is counted.
@@ -132,7 +130,8 @@ export const register: Register = on => {
     let shownAt = -1e15
     // The wait before the first generated chunk, in ms: prefill and the
     // gateway's queueing, which no streaming chunk can show while they last.
-    const askedAt = Date.now()
+    // The host's clock: two reads per step, and it is the one the tests drive.
+    const askedAt = await $.clock.now()
     let ttftMs = 0
     // Whether a step of this turn is already counting it.
     const curTurn = (await read($, cur))?.turnId === e.turnId
@@ -156,7 +155,7 @@ export const register: Register = on => {
       // a decode window, so `last` reports that wait on its own.
       if (!first && (c.kind === 'text' || c.kind === 'thinking' || c.kind === 'tool')) {
         first = now
-        ttftMs = Math.max(0, now - askedAt)
+        ttftMs = Math.max(0, (await $.clock.now()) - askedAt)
         // The session's first step has no turn open yet: count from its first
         // chunk, so its rate is not measured from the day's epoch. ponytail:
         // keyed on the step index, since a hook cannot tell a stale turn id
@@ -170,6 +169,7 @@ export const register: Register = on => {
             input: 0,
             cached: 0,
             written: 0,
+            ttftMs: 0,
           }))
         }
       }
@@ -191,7 +191,7 @@ export const register: Register = on => {
           seconds: (now - first) / 1000,
         }
         // The reply on screen counts toward both rows as it arrives.
-        const now2 = bandOf(done, open, { out: streamed, ms: now - first }, live)
+        const now2 = bandOf(done, open, { out: streamed, ms: now - first, ttftMs }, live)
         await update($, band, () => now2)
       }
 
@@ -201,7 +201,7 @@ export const register: Register = on => {
     // A tool run or the next step is not a decode window; only that row clears.
     // Written even with no band yet, so the first turn's rows exist by the time
     // its first chunk streams.
-    await update($, band, () => bandOf(done, open, { out: 0, ms: 0 }, null))
+    await update($, band, () => bandOf(done, open, { out: 0, ms: 0, ttftMs }, null))
 
     if (!first || !last) {
       return
@@ -233,7 +233,7 @@ export const register: Register = on => {
     }
 
     await update($, cur, () => open as Cur)
-    await update($, band, () => bandOf(done, open, { out: 0, ms: 0 }, null))
+    await update($, band, () => bandOf(done, open, { out: 0, ms: 0, ttftMs: 0 }, null))
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -305,6 +305,7 @@ export const register: Register = on => {
         out: sum.out,
         total: sum.input + sum.cached + sum.written + sum.out,
         turns: sum.turns,
+        ttftMs: sum.ttftMs,
       },
     }
 
@@ -329,12 +330,9 @@ export const register: Register = on => {
 
     const { Box, Text } = $.ui.resolve(e)
 
-    // Three rows, one column per field: tok/s, out, in, hit/cached, and sess's
-    // extra (total) last. Each cell is right-aligned on the widest of its
-    // column so the values line up down the columns, and a row without a field
-    // keeps its column as blanks. The label sits in a fixed 5-wide first
-    // column; a row that comes and goes (live, between steps) keeps its row.
-    // Each column: its header, and the live / last / sess cell for it.
+    // Four rows of one table: a header, then live / last / sess. Each column
+    // sizes to the widest cell it holds and right-aligns the rest, so a value
+    // sits in the same place on every row and every redraw.
     // A row with no value for a column keeps that column's width, with a dash
     // in it: the columns after it must not slide left.
     const col = (name: string, a: string, b: string, c: string) => {
@@ -347,7 +345,7 @@ export const register: Register = on => {
       // Seconds to the first generated chunk; the session shows its average.
       col(
         "ttft",
-        "",
+        live && mainLoop.ttftMs ? `${(num(mainLoop.ttftMs) / 1000).toFixed(1)}s` : "",
         mainLoop.turn ? `${(num(mainLoop.ttftMs) / 1000).toFixed(1)}s` : "—",
         sess.turns ? `${(num(sess.ttftMs) / num(sess.turns) / 1000).toFixed(1)}s` : "—",
       ),

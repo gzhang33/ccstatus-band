@@ -272,3 +272,69 @@ test('band estimates a live rate while a response streams', { timeoutMs: 15000 }
   await it.next()
   await it.return?.()
 })
+
+test('ttft survives the turn and shows while it streams', { timeoutMs: 15000 }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  let release!: () => void
+  const gate = new Promise<void>(r => (release = r))
+  const cost = usage({
+    output_tokens: 100,
+    input_tokens: 900,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  })
+
+  on('turn.step', async function* ($, e) {
+    // Prefill: the request is out, nothing has come back yet.
+    await clock.advance(1200)
+    yield { kind: 'text', index: 0, text: 'x' }
+    await gate
+    yield { kind: 'stop', stopReason: 'end_turn', usage: cost }
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: 'x',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: cost,
+    }
+  })
+
+  on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+
+  const it = $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 })[
+    Symbol.asyncIterator
+  ]()
+  await it.next()
+
+  const streaming = (await rowTexts(await $.ui.mount({
+    plugin: 'ccstatus-band',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    props: PROPS,
+  }))).slice(1)
+  expect(streaming[0]).toMatch(/1\.2s/)
+  expect(streaming[1]).toMatch(/1\.2s/)
+
+  release()
+  // Pull to the end: the step's own counts are written after its last chunk.
+  while (!(await it.next()).done) void 0
+  await $.turn.complete({
+    answer: 'ok',
+    durationMs: 1200,
+    isAborted: false,
+    turnId: 't1',
+    reason: 'answer',
+    usage: cost,
+  })
+
+  const done = (await rowTexts(await $.ui.mount({
+    plugin: 'ccstatus-band',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    props: PROPS,
+  }))).slice(1)
+  // The session keeps the wait; it used to be dropped when the turn closed.
+  expect(done[1]).toMatch(/1\.2s/)
+  expect(done[2]).toMatch(/1\.2s/)
+})
