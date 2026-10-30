@@ -9,7 +9,7 @@
     {
       "name": "ccstatus-band",
       "source": "./",
-      "description": "A table of live and per-turn token throughput, tokens and prompt-cache hit rate in the band above the Claude Code prompt"
+      "description": "Three rows above the Claude Code prompt: this prompt, the one before it and the session, with decode rate, ttft, tokens, cache hit rate and model calls"
     }
   ]
 }

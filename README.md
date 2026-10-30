@@ -2,7 +2,7 @@
 
 **English** · [中文](README.zh-CN.md)
 
-A mod for the Claude Code desktop app that draws a small table in the band above the prompt: how the prompt you just typed is going, what the one before it cost, and what the session has spent so far.
+A small table above the prompt of the Claude Code desktop app. Three rows: the prompt you are in, the one before it, and the session. Eight columns you can switch on and off.
 
 ![The band above the prompt](assets/band.png)
 
@@ -13,13 +13,13 @@ last    51 · 1.9s ·  9.2k ·  96k · 98.3% ·     4 ·  5.1M
 sess    55 · 1.4s ·  410M ·  12M · 98.1% ·   133 ·  411M
 ```
 
-Same field, same column, on every row, so the eye reads one column down instead of hunting: each value is right-aligned on the widest in its column, and every row keeps its place. The rows are drawn in the surface's monospaced face with tabular digits — without that, a column of spaces lines up nothing.
+Every field keeps its column, so you read one column down instead of hunting. Values are right-aligned on the widest in their column, and no row appears or disappears. The rows use the surface's monospaced face with tabular digits; in a proportional face, padded spaces line nothing up.
 
 ## What each row means
 
 | Row | Meaning |
 | --- | --- |
-| `live` | **This prompt** (one thing you typed). While it runs, every column moves with it; a column not known yet shows `—`. Once it ends the row keeps its final numbers until your next prompt. |
+| `live` | **This prompt.** It moves while the reply streams; a column the API has not reported yet shows `—`. After it ends the row keeps its final numbers until your next prompt. |
 | `last` | **The prompt before it**, frozen when it ended. `—` throughout until a second prompt has finished. |
 | `sess` | **Everything in the session so far**, the running prompt included, so it grows while `live` does. |
 
@@ -36,7 +36,7 @@ Same field, same column, on every row, so the eye reads one column down instead 
 
 `total` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a prompt adds up to 690k. That is the cost, not the context length.
 
-A running prompt's own counts (`in`, `hit`, `total`) stay `—` until its first call stops, because the API states them at a call's stop. Everything else moves as the reply streams, and `turn.complete` settles the row on the API's own numbers.
+A running prompt's own counts (`in`, `hit`, `total`) stay `—` until its first call stops: the API reports them at a call's stop and nowhere earlier. The other columns move as the reply streams, and the end of the prompt settles the row on the API's numbers.
 
 `live`'s `tok/s` and `out` are the only estimates. The API reports a response's token counts once, in its last chunk, so mid-stream there is nothing to count; the band counts CJK characters as one token and everything else as a quarter, then replaces the estimate with the API's own numbers when the response ends. It is good enough to watch, not to reconcile against a bill.
 
