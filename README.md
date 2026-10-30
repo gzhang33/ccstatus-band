@@ -2,7 +2,7 @@
 
 **English** · [中文](README.zh-CN.md)
 
-A mod for the Claude Code desktop app that draws a small table in the band above the prompt: how fast the model is writing right now, what the last turn cost, and what the session has spent so far.
+A mod for the Claude Code desktop app that draws a small table in the band above the prompt: how the prompt you just typed is going, what the one before it cost, and what the session has spent so far.
 
 ![The band above the prompt](assets/band.png)
 
@@ -46,7 +46,7 @@ Each column is its own switch under **Settings › Plugins › ccstatus-band** (
 
 ## Where the numbers come from
 
-Everything else is the API's own accounting, read from the engine's `turn.step` and `turn.complete` events:
+Beyond the estimates on the live row, everything is the API's own accounting, read from the engine's `turn.step` and `turn.complete` events:
 
 - **Per call, not per prompt.** A prompt is usually several calls (answer → tool → answer). Some gateways report only the last call's usage at `turn.complete`; the band sums every call's `stop` chunk instead, so a row is the whole prompt.
 - **Subagents are excluded.** Their steps run their own loop; folding their tokens into the session rate would make it meaningless.

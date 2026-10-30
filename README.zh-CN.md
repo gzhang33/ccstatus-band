@@ -2,7 +2,7 @@
 
 [English](README.md) · **中文**
 
-Claude Code 桌面版的 mod：在输入框上方的条带里画一张小表，显示模型此刻写得多快、上一轮花了多少、本会话累计多少。
+Claude Code 桌面版的 mod：在输入框上方的条带里画一张小表，显示本次 prompt 进行到哪、上一条 prompt 花了多少、本会话累计多少。
 
 ![输入框上方的条带](assets/band.png)
 
@@ -46,7 +46,7 @@ sess    55 · 1.4s ·  410M ·  12M · 98.1% ·   133 ·  411M
 
 ## 数字从哪来
 
-`live` 之外全部是 API 自己的账，来自引擎的 `turn.step` 与 `turn.complete` 事件：
+除 `live` 行的估算值外，全部是 API 自己的账，来自引擎的 `turn.step` 与 `turn.complete` 事件：
 
 - **按调用累加，不按 prompt。** 一条 prompt 通常包含多次调用（回答 → 调工具 → 再回答）。部分网关只在 `turn.complete` 报最后一次调用的用量，本 mod 改为在每次调用的 `stop` chunk 处累加，所以一行是全条 prompt 的真值。
 - **不计子代理。** 子代理跑自己的循环，把它的 token 混进会话速度会让这个数失去意义。
