@@ -34,10 +34,8 @@ const cell = (v: string, w: number) => v.padStart(w)
 // column that carries one on another row, so a live row is "tok/s · out" and
 // the ones below keep the same columns. Columns the row lacks stay blank, at
 // their width, and trailing blanks are cut.
-const line = (cells: string[]) => {
-  const out = cells.join(' · ')
-  return out.replace(/[\s·]+$/, '')
-}
+// A cell a row has no value for keeps its column as a dash.
+const line = (cells: string[]) => cells.map(v => (v.trim() ? v : '—')).join(' · ')
 const pctF = (v: number) => v.toFixed(1)
 
 // Nothing in a streamed chunk counts tokens: each response reports its counts
@@ -129,8 +127,8 @@ export const register: Register = on => {
           seconds: (now - first) / 1000,
         }
         await update($, band, b => ({
-          last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, seconds: 0 },
-          session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0 },
+          last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turn: 0, ttftMs: 0, seconds: 0 },
+          session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0, ttftMs: 0 },
           live,
         }))
       }
@@ -142,8 +140,8 @@ export const register: Register = on => {
     // Written even with no band yet, so the first turn's rows exist by the time
     // its first chunk streams.
     await update($, band, b => ({
-      last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, seconds: 0 },
-      session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0 },
+      last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turn: 0, ttftMs: 0, seconds: 0 },
+      session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0, ttftMs: 0 },
       live: null,
     }))
 
@@ -162,7 +160,8 @@ export const register: Register = on => {
       input: prev?.turnId === e.turnId ? prev.input : 0,
       cached: prev?.turnId === e.turnId ? prev.cached : 0,
       written: prev?.turnId === e.turnId ? prev.written : 0,
-      ttftMs,
+      // The wait the person noticed is the turn's first one.
+      ttftMs: prev?.turnId === e.turnId && prev.ttftMs > 0 ? prev.ttftMs : ttftMs,
     }
 
     await update($, cur, () => ({
@@ -209,6 +208,7 @@ export const register: Register = on => {
       input: (prev?.input ?? 0) + (turn.input ?? 0),
       cached: (prev?.cached ?? 0) + (turn.cached ?? 0),
       written: (prev?.written ?? 0) + (turn.written ?? 0),
+      ttftMs: (prev?.ttftMs ?? 0) + (turn.ttftMs ?? 0),
       turns: (prev?.turns ?? 0) + 1,
     }
     const shown: Band = {
@@ -221,6 +221,9 @@ export const register: Register = on => {
               hitPct: pct(turn.cached ?? 0, denom),
               input: turn.input ?? 0,
               out: turn.out ?? 0,
+              total: denom + (turn.out ?? 0),
+              turn: sum.turns,
+              ttftMs: turn.ttftMs ?? 0,
               seconds: (turn.ms ?? 0) / 1000,
             }
           : ((await read($, band))?.last ?? {
@@ -228,6 +231,9 @@ export const register: Register = on => {
               hitPct: pct(turn.cached ?? 0, denom),
               input: turn.input ?? 0,
               out: turn.out ?? 0,
+              total: denom + (turn.out ?? 0),
+              turn: sum.turns,
+              ttftMs: turn.ttftMs ?? 0,
               seconds: 0,
             }),
       session: {
@@ -256,8 +262,8 @@ export const register: Register = on => {
     // Values written by the earlier band shape lack live and the token totals.
     const live = shown.live ?? null
     const num = (v: number | undefined) => v ?? 0
-    const mainLoop = shown.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, seconds: 0 }
-    const sess = shown.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0 }
+    const mainLoop = shown.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turn: 0, ttftMs: 0, seconds: 0 }
+    const sess = shown.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0, ttftMs: 0 }
 
     const { Box, Text } = $.ui.resolve(e)
 
@@ -272,11 +278,20 @@ export const register: Register = on => {
       return [cell(name, w), cell(a, w), cell(b, w), cell(c, w)]
     }
     const cols = [
-      col("tok/s", `~${fmtRate(num(live?.tokPerSec))}`, fmtRate(num(mainLoop.tokPerSec)), fmtRate(num(sess.tokPerSec))),
-      col("out", fmtTokens(num(live?.out)), fmtTokens(num(mainLoop.out)), fmtTokens(num(sess.out))),
+      col("tok/s", live ? `~${fmtRate(num(live.tokPerSec))}` : "", fmtRate(num(mainLoop.tokPerSec)), fmtRate(num(sess.tokPerSec))),
+      // Seconds to the first generated chunk; the session shows its average.
+      col(
+        "ttft",
+        "",
+        mainLoop.turn ? `${(num(mainLoop.ttftMs) / 1000).toFixed(1)}s` : "—",
+        sess.turns ? `${(num(sess.ttftMs) / num(sess.turns) / 1000).toFixed(1)}s` : "—",
+      ),
+      col("out", live ? fmtTokens(num(live.out)) : "", fmtTokens(num(mainLoop.out)), fmtTokens(num(sess.out))),
       col("in", "", fmtTokens(num(mainLoop.input)), fmtTokens(num(sess.input))),
       col("hit", "", `${pctF(num(mainLoop.hitPct))}%`, `${pctF(num(sess.hitPct))}%`),
-      col("total", "", "", fmtTokens(num(sess.total))),
+      // The turn in progress counts from the session's finished ones.
+      col("turn", live ? String(num(sess.turns) + 1) : "", String(num(mainLoop.turn)), String(num(sess.turns))),
+      col("total", "", fmtTokens(num(mainLoop.total)), fmtTokens(num(sess.total))),
     ] as const
 
     // Only sess stays dim: live is the value the person is watching, and dim
@@ -284,10 +299,9 @@ export const register: Register = on => {
     // `mono` is what makes the padding line up: the desktop's body face is
     // proportional, where a column of spaces is not a column of anything.
     // `tabular` pins digit widths, so a value that ticks does not shift.
-    const row = (label: string, i: number) => (
+    const row = (label: string, i: number, blank = false) => (
       <Text mono tabular dimColor={label === "sess"}>
-        {pad(label, 5)}
-        {line(cols.map(c => c[i]))}
+        {(pad(label, 5) + (blank ? "" : line(cols.map(c => c[i])))).trimEnd()}
       </Text>
     )
 
@@ -297,7 +311,7 @@ export const register: Register = on => {
           {pad("", 5)}
           {cols.map(c => c[0]).join(" · ")}
         </Text>
-        {row("live", 1)}
+        {row("live", 1, live === null)}
         {row("last", 2)}
         {row("sess", 3)}
       </Box>

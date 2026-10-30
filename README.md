@@ -7,10 +7,10 @@ A mod for the Claude Code desktop app that draws a small table in the band above
 ![The band above the prompt](assets/band.png)
 
 ```
-     tok/s · out ·   in ·   hit · total
-live  ~96 · 726
-last   58 · 16.8k · 138k · 97.3%
-sess   55 · 726 · 138k · 97.3% · 5.0M
+     tok/s · ttft ·   out ·   in ·   hit · turn · total
+live   ~96 · — ·   726 · — · — · — · —
+last    58 · 1.2s · 16.8k · 138k · 97.8% ·    7 ·  6.5M
+sess    55 · 1.4s ·  410M ·  12M · 98.1% ·    7 ·  411M
 ```
 
 Same field, same column, on every row, so the eye reads one column down instead of hunting: each value is right-aligned on the widest in its column, and the row that comes and goes keeps its place. The rows are drawn in the surface's monospaced face with tabular digits — without that, a column of spaces lines up nothing.
@@ -22,14 +22,21 @@ Same field, same column, on every row, so the eye reads one column down instead 
 | `live` | `tok/s` | Decode rate of the reply streaming right now, **estimated** from the characters received (see the note below) |
 | | `out` | Estimated tokens of that reply so far |
 | `last` | `tok/s` | Decode rate of the turn just finished: output tokens over the time spent generating them, tool runs and prefill excluded |
+| | `ttft` | Wait before the turn's first generated chunk: prefill plus whatever the gateway spent queueing it |
 | | `out` | Tokens the model generated in that turn |
 | | `in` | Prompt tokens that were **not** served from the prompt cache |
 | | `hit` | Share of the turn's prompt tokens that came from the cache |
+| | `turn` | Which turn of the session this was, counting from 1 |
+| | `total` | Everything that turn carried: uncached input + cache reads + cache writes + output |
 | `sess` | `tok/s` | Session-wide decode rate: all output tokens over all generation time |
+| | `ttft` | Mean first-chunk wait over the session's turns |
 | | `out` | All output tokens this session |
 | | `in` | All uncached prompt tokens this session |
 | | `hit` | Session cache hit rate |
+| | `turn` | Turns finished in this session |
 | | `total` | Everything the session carried: uncached input + cache reads + cache writes + output |
+
+`total` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a turn adds up to 690k. That is the cost, not the context length. `—` marks a cell the row has no value for.
 
 `live` is the only estimated number. The API reports a response's token counts once, in its last chunk, so mid-stream there is nothing to count; the band counts CJK characters as one token and everything else as a quarter, then replaces the estimate with the API's own numbers when the response ends. It is good enough to watch, not to reconcile against a bill.
 

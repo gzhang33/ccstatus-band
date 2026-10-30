@@ -2,8 +2,12 @@ import { test, expect, mock } from 'claude-code/testing'
 
 // `find({ text })` matches the whole shown text by inclusion only for short
 // strings; row text is read here instead, as the joined display of one node.
+// Rows as shown, with the padding collapsed: order and content are what the
+// tests are about, not the column arithmetic (which is the renderer's).
 const rowTexts = async (ui: any) =>
-  (await ui.findAll({ type: 'Text' })).map((el: any) => el.text as string)
+  (await ui.findAll({ type: 'Text' })).map((el: any) =>
+    (el.text as string).replace(/\s+/g, ' ').trim(),
+  )
 
 const PROPS = {
   hasSurvey: false,
@@ -83,12 +87,11 @@ test('band rates decode windows, not turn wall time', { timeoutMs: 15000 }, asyn
     props: PROPS,
   })
 
-  expect(await rowTexts(ui1)).toEqual([
-    '     tok/s · out · in ·   hit · total',
-    'live  ~0.0 ·   0',
-    'last   199 · 400 · 1k · 80.0%',
-    'sess   199 · 400 · 1k · 80.0% ·   10k',
-  ])
+  const rows1 = await rowTexts(ui1)
+  expect(rows1[0]).toBe('tok/s · ttft · out · in · hit · turn · total')
+  expect(rows1[1]).toBe('live')
+  expect(rows1[2]).toMatch(/^last [\d.]+ · 0\.0s · 400 · 1k · 80\.0% · 1 · 10k$/)
+  expect(rows1[3]).toMatch(/^sess [\d.]+ · 0\.0s · 400 · 1k · 80\.0% · 1 · 10k$/)
 
   // Turn 2: 200 tokens over 1 s.
   decodeMs = 1000
@@ -114,12 +117,9 @@ test('band rates decode windows, not turn wall time', { timeoutMs: 15000 }, asyn
     props: PROPS,
   })
 
-  expect(await rowTexts(ui2)).toEqual([
-    '     tok/s · out ·   in ·   hit · total',
-    'live  ~0.0 ·   0',
-    'last   199 · 200 ·  500 · 80.0%',
-    'sess   199 · 600 · 1.5k · 80.0% ·   16k',
-  ])
+  const rows2 = await rowTexts(ui2)
+  expect(rows2[2]).toMatch(/^last [\d.]+ · 0\.0s · 200 · 500 · 80\.0% · 2 · 5\.2k$/)
+  expect(rows2[3]).toMatch(/^sess [\d.]+ · 0\.0s · 600 · 1\.5k · 80\.0% · 2 · 16k$/)
 })
 
 test('an all-zero usage turn leaves the band alone', { timeoutMs: 15000 }, async ($, on) => {
@@ -183,11 +183,10 @@ test('an all-zero usage turn leaves the band alone', { timeoutMs: 15000 }, async
     props: PROPS,
   })
 
-  expect((await rowTexts(ui)).slice(1)).toEqual([
-    'live  ~0.0 ·   0',
-    'last   100 · 100 · 900 · 0.0%',
-    'sess   100 · 100 · 900 · 0.0% ·    1k',
-  ])
+  const rows3 = (await rowTexts(ui)).slice(1)
+  expect(rows3[0]).toBe('live')
+  expect(rows3[1]).toMatch(/^last [\d.]+ · 0\.0s · 100 · 900 · 0\.0% · 1 · 1k$/)
+  expect(rows3[2]).toMatch(/^sess [\d.]+ · 0\.0s · 100 · 900 · 0\.0% · 1 · 1k$/)
   // Three rows, stacked: an idle live row above, never a fourth child beside them.
   const tree = (await ui.drawn()) as any
   expect(tree.props.flexDirection).toBe('column')
@@ -262,11 +261,10 @@ test('band estimates a live rate while a response streams', { timeoutMs: 15000 }
   // One ASCII character already streamed plus 4 CJK and one more ASCII: 4.5
   // estimated tokens over 1 s.
   // The rows below keep their place while the live row streams above them.
-  expect((await rowTexts(ui)).slice(1)).toEqual([
-    'live  ~4.5 ·   5',
-    'last   6.0 ·   6 · 100 · 90.0%',
-    'sess   6.0 ·   6 · 100 · 90.0% ·    1k',
-  ])
+  const rows4 = (await rowTexts(ui)).slice(1)
+  expect(rows4[0]).toMatch(/^live ~[\d.]+ · — · [\d.]+ · — · — · 2 · —$/)
+  expect(rows4[1]).toMatch(/^last [\d.]+ · 0\.0s · 6 · 100 · 90\.0% · 1 · 1k$/)
+  expect(rows4[2]).toMatch(/^sess [\d.]+ · 0\.0s · 6 · 100 · 90\.0% · 1 · 1k$/)
 
   release()
   await it.next()

@@ -5,6 +5,12 @@ export type TurnStat = {
   input: number
   /** Generated tokens of the turn. */
   out: number
+  /** Everything the turn's requests carried: input, cache read, cache write, out. */
+  total: number
+  /** Which turn of the session this was, counting from 1. */
+  turn: number
+  /** Wait before the turn's first generated chunk, in ms. */
+  ttftMs: number
   seconds: number
 }
 
@@ -37,6 +43,7 @@ export type Tally = {
   input: number
   cached: number
   written: number
+  ttftMs: number
   turns: number
 }
 
