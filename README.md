@@ -7,10 +7,10 @@ A small table above the prompt of the Claude Code desktop app. Three rows: the p
 ![The band above the prompt](assets/band.png)
 
 ```
-     tok/s · ttft ·   out ·   in ·   hit · calls · total
-live   218 · 6.2s ·  4.3k ·  6.6k · 99.9% ·    19 ·  9.2M
-last    97 · 5.0s ·    49 ·  2.3k · 99.5% ·     1 ·  474k
-sess   199 · 5.0s ·   60k ·  116k · 99.9% ·   226 · 94.1M
+     tok/s · ttft ·  out ·   in ·   hit · calls · total · model ·   tool
+live   218 · 6.2s · 4.3k · 6.6k · 99.9% ·    19 ·  9.2M · 2m41s ·  3m08s
+last    97 · 5.0s ·   49 · 2.3k · 99.5% ·     1 ·  474k · 14.2s ·      —
+sess   199 · 5.0s ·  60k · 116k · 99.9% ·   226 · 94.1M · 1h12m · 58m04s
 ```
 
 Every field keeps its column, so you read one column down instead of hunting. Values are right-aligned on the widest in their column, and no row appears or disappears. The rows use the surface's monospaced face with tabular digits; in a proportional face, padded spaces line nothing up.
@@ -33,6 +33,8 @@ Every field keeps its column, so you read one column down instead of hunting. Va
 | `turn` | Which prompt of the session this was, counting from 1. Off by default. |
 | `calls` | Model calls the prompt made that returned usage: one prompt is usually several calls (answer → tool → answer), and a call that never got its usage (an interrupt) counts as none. |
 | `total` | Everything carried: uncached input + cache reads + cache writes + output. |
+| `model` | Wall time the row spent waiting on the model: request to stop chunk, so prefill, gateway queueing and generation. |
+| `tool` | Wall time the row spent on tool runs: the gaps between one call's stop and the next call's request. |
 
 `total` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a prompt adds up to 690k. That is the cost, not the context length.
 
@@ -89,6 +91,7 @@ The layout:
 - A field wider than its column (a `10.5M` total against a `5.0M` session) pushes that column one character right for the rest of the session.
 - Before the session's first prompt the band draws nothing, and `last` stays `—` until a second prompt has finished.
 - Nothing changes during prefill or while a gateway queues the call: the stream has no chunk to count then, so the live row keeps its last state until the first token arrives.
+- `model` and `tool` are wall time, not billed time: a gateway that queues the call for 30s counts 30s. The session's `model` starts when the mod loads, so a session resumed from disk shows time it did not cause.
 - No cost figure: it needs a price table per model, and this one is used behind several gateways.
 
 ## License

@@ -28,6 +28,16 @@ const fmtTokens = (v: number) => {
   return String(Math.round(v))
 }
 
+// A duration as the band shows it: seconds, then minutes once it is long.
+const secs = (ms: number) => {
+  const s = ms / 1000
+  // A wait over an hour is a clock that was not measured, not a long call.
+  if (s > 3600) return '—'
+  if (s < 60) return `${s.toFixed(1)}s`
+  const m = Math.floor(s / 60)
+  return `${m}m${String(Math.round(s % 60)).padStart(2, '0')}s`
+}
+
 // Left- or right-pads a cell to its column's width, so every row and every
 // redraw puts the same field in the same place.
 const pad = (s: string, n: number) => (s.length >= n ? s : s + ' '.repeat(n - s.length))
@@ -52,6 +62,8 @@ const est = (s: string) => {
 const ZERO_TALLY: Tally = {
   out: 0,
   ms: 0,
+  modelMs: 0,
+  toolMs: 0,
   input: 0,
   cached: 0,
   written: 0,
@@ -72,6 +84,8 @@ const rowOf = (s: Snap): Row => ({
   turn: s.turn,
   calls: s.calls,
   total: s.input + s.cached + s.written + s.out,
+  modelMs: s.modelMs,
+  toolMs: s.toolMs,
 })
 
 /**
@@ -89,7 +103,7 @@ const bandOf = (
   open: Cur | null,
   recentSnap: Snap | null,
   prevSnap: Snap | null,
-  extra: { out: number; ms: number; ttftMs: number },
+  extra: { out: number; ms: number; ttftMs: number; modelMs: number },
   live: { tokPerSec: number } | null,
 ): Band => {
   const running = open !== null || live !== null
@@ -102,6 +116,8 @@ const bandOf = (
   const written = t.written + (open?.written ?? 0)
   const ttft = t.ttftMs + (open?.ttftMs ?? 0) + extra.ttftMs
   const calls = t.calls + (open?.calls ?? 0)
+  const modelMs = t.modelMs + (open?.modelMs ?? 0) + extra.modelMs
+  const toolMs = t.toolMs + (open?.toolMs ?? 0)
 
   const sess: Row = {
     rate: rate(out, ms),
@@ -112,6 +128,8 @@ const bandOf = (
     turn: prompts,
     calls,
     total: input + cached + written + out,
+    modelMs,
+    toolMs,
   }
 
   let liveRow: Row | null
@@ -128,6 +146,8 @@ const bandOf = (
       turn: prompts,
       calls: open?.calls ?? 0,
       total: counted ? promptTokens + (open?.out ?? 0) + extra.out : null,
+      modelMs,
+      toolMs,
     }
   } else {
     liveRow = recentSnap ? rowOf(recentSnap) : null
@@ -170,6 +190,11 @@ export const register: Register = (on, options) => {
     const prevSnap = (await read($, prev)) as Snap | null
     // The prompt so far: its earlier calls, then each one as it ends.
     let open = curTurn ? ((await read($, cur)) as Cur) : null
+    // Time since this prompt's previous call ended, if one has.
+    const toolGap = Math.max(0, askedAt - (open?.endedAt ?? askedAt))
+    // Wall time this call spent waiting on the model: from the request to its
+    // stop chunk, so prefill and the gaps between chunks are in, tool runs out.
+    let modelMs = 0
     // This one call's counts, as its stop chunk reports them.
     let counted = false
     let out = 0
@@ -199,11 +224,14 @@ export const register: Register = (on, options) => {
             turnId: e.turnId,
             out: 0,
             ms: 0,
+            modelMs: 0,
+            toolMs: 0,
             input: 0,
             cached: 0,
             written: 0,
             ttftMs: 0,
             calls: 0,
+            endedAt: askedAt,
           }))
         }
       }
@@ -213,6 +241,7 @@ export const register: Register = (on, options) => {
 
       if (c.kind === 'stop') {
         last = now
+        modelMs = Math.max(0, now - askedAt)
         counted = c.usage !== null
         out = c.usage?.output_tokens ?? 0
         input = c.usage?.input_tokens ?? 0
@@ -221,7 +250,7 @@ export const register: Register = (on, options) => {
       } else if (first && now - shownAt >= 250) {
         shownAt = now
         const live = { tokPerSec: rate(streamed, now - first) }
-        const next2 = bandOf(done, open, recentSnap, prevSnap, { out: streamed, ms: now - first, ttftMs }, live)
+        const next2 = bandOf(done, open, recentSnap, prevSnap, { out: streamed, ms: now - first, ttftMs, modelMs: now - askedAt }, live)
         await update($, band, () => next2)
       }
 
@@ -231,7 +260,7 @@ export const register: Register = (on, options) => {
     // A tool run or the next call is not a decode window; only that row clears.
     // Written even with no band yet, so the rows exist with the first chunk.
     await update($, band, () =>
-      bandOf(done, open, recentSnap, prevSnap, { out: 0, ms: 0, ttftMs }, null),
+      bandOf(done, open, recentSnap, prevSnap, { out: 0, ms: 0, ttftMs, modelMs: 0 }, null),
     )
 
     if (!first || !last) {
@@ -246,17 +275,21 @@ export const register: Register = (on, options) => {
       turnId: e.turnId,
       out: (open?.out ?? 0) + out,
       ms: (open?.ms ?? 0) + Math.max(0, last - first),
+      modelMs: (open?.modelMs ?? 0) + (counted ? modelMs : 0),
+      // Between a call's stop and the next one's request: the tools that ran.
+      toolMs: (open?.toolMs ?? 0) + toolGap,
       input: (open?.input ?? 0) + input,
       cached: (open?.cached ?? 0) + cached,
       written: (open?.written ?? 0) + written,
       // The wait the person noticed is the prompt's first one.
       ttftMs: open?.ttftMs || ttftMs,
       calls: (open?.calls ?? 0) + (counted ? 1 : 0),
+      endedAt: counted ? (await $.clock.now()) : (open?.endedAt ?? askedAt),
     }
 
     await update($, cur, () => open as Cur)
     await update($, band, () =>
-      bandOf(done, open, recentSnap, prevSnap, { out: 0, ms: 0, ttftMs: 0 }, null),
+      bandOf(done, open, recentSnap, prevSnap, { out: 0, ms: 0, ttftMs: 0, modelMs: 0 }, null),
     )
   })
 
@@ -274,6 +307,8 @@ export const register: Register = (on, options) => {
       turnId: e.turnId,
       out: usage?.output_tokens ?? 0,
       ms: 0,
+      modelMs: 0,
+      toolMs: 0,
       input: usage?.input_tokens ?? 0,
       cached: usage?.cache_read_input_tokens ?? 0,
       written: usage?.cache_creation_input_tokens ?? 0,
@@ -292,6 +327,8 @@ export const register: Register = (on, options) => {
     const snap: Snap = {
       out: prompt.out,
       ms: prompt.ms,
+      modelMs: prompt.modelMs,
+      toolMs: prompt.toolMs,
       input: prompt.input,
       cached: prompt.cached,
       written: prompt.written,
@@ -302,6 +339,8 @@ export const register: Register = (on, options) => {
     const sum: Tally = {
       out: t.out + snap.out,
       ms: t.ms + snap.ms,
+      modelMs: t.modelMs + snap.modelMs,
+      toolMs: t.toolMs + snap.toolMs,
       input: t.input + snap.input,
       cached: t.cached + snap.cached,
       written: t.written + snap.written,
@@ -313,7 +352,7 @@ export const register: Register = (on, options) => {
     await update($, prev, () => before)
     await update($, recent, () => snap)
     await update($, tally, () => sum)
-    await update($, band, () => bandOf(sum, null, snap, before, { out: 0, ms: 0, ttftMs: 0 }, null))
+    await update($, band, () => bandOf(sum, null, snap, before, { out: 0, ms: 0, ttftMs: 0, modelMs: 0 }, null))
 
     return next(e)
   })
@@ -339,6 +378,8 @@ export const register: Register = (on, options) => {
         ['turn', 'turn', 'turn'],
         ['calls', 'calls', 'calls'],
         ['total', 'total', 'total'],
+        ['model', 'modelMs', 'model'],
+        ['tool', 'toolMs', 'tool'],
       ] as Array<[string, keyof Row, string]>
     ).filter(([key]) => enabled(key))
 
@@ -354,6 +395,7 @@ export const register: Register = (on, options) => {
       if (v === null) return ''
       if (key === 'rate') return fmtRate(v)
       if (key === 'ttftMs') return `${(v / 1000).toFixed(1)}s`
+      if (key === 'modelMs' || key === 'toolMs') return secs(v)
       if (key === 'hit') return `${v.toFixed(1)}%`
       if (key === 'turn' || key === 'calls') return String(v)
       return fmtTokens(v)

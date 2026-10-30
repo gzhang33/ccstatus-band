@@ -1,7 +1,7 @@
 {
   "name": "ccstatus-band",
   "version": "0.1.0",
-  "description": "Three rows above the Claude Code prompt: this prompt, the one before it and the session, with decode rate, ttft, tokens, cache hit rate and model calls",
+  "description": "Three rows above the Claude Code prompt: this prompt, the one before it and the session, with decode rate, ttft, tokens, cache hit rate, model calls, and model vs tool time",
   "author": {
     "name": "gianni"
   },
@@ -55,6 +55,18 @@
       "default": true,
       "description": "Show the total column. Everything carried: uncached input + cache read + cache write + output.",
       "title": "total column"
+    },
+    "col_model": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the model column. Wall time spent waiting on model calls: prefill, queueing and generation.",
+      "title": "model column"
+    },
+    "col_tool": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the tool column. Wall time spent running tool calls between model calls.",
+      "title": "tool column"
     }
   }
 }

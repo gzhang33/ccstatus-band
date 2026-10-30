@@ -15,6 +15,10 @@ export type Row = {
   calls: number | null
   /** input + cache read + cache write + out. */
   total: number | null
+  /** Wall time spent waiting on model calls: prefill, queueing, generation. */
+  modelMs: number | null
+  /** Wall time spent running tool calls between them. */
+  toolMs: number | null
 }
 
 export type Band = {
@@ -31,6 +35,8 @@ export type Band = {
 export type Tally = {
   out: number
   ms: number
+  modelMs: number
+  toolMs: number
   input: number
   cached: number
   written: number
@@ -43,6 +49,8 @@ export type Tally = {
 export type Snap = {
   out: number
   ms: number
+  modelMs: number
+  toolMs: number
   input: number
   cached: number
   written: number
@@ -56,11 +64,15 @@ export type Cur = {
   turnId: string
   out: number
   ms: number
+  modelMs: number
+  toolMs: number
   input: number
   cached: number
   written: number
   ttftMs: number
   calls: number
+  /** When its last call stopped, for the tool time the next one follows. */
+  endedAt?: number
 }
 
 declare module 'claude-code' {

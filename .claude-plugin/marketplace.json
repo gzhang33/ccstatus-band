@@ -9,7 +9,7 @@
     {
       "name": "ccstatus-band",
       "source": "./",
-      "description": "Three rows above the Claude Code prompt: this prompt, the one before it and the session, with decode rate, ttft, tokens, cache hit rate and model calls"
+      "description": "Three rows above the Claude Code prompt: this prompt, the one before it and the session, with decode rate, ttft, tokens, cache hit rate, model calls, and model vs tool time"
     }
   ]
 }
