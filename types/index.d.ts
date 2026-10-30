@@ -1,40 +1,31 @@
-export type TurnStat = {
-  tokPerSec: number
-  hitPct: number
-  /** Uncached input tokens of the turn. */
-  input: number
-  /** Generated tokens of the turn. */
-  out: number
-  /** Everything the turn's requests carried: input, cache read, cache write, out. */
-  total: number
-  /** Which turn of the session this was, counting from 1. */
-  turn: number
-  /** Wait before the turn's first generated chunk, in ms. */
-  ttftMs: number
-  seconds: number
-}
-
-export type SessionStat = {
-  tokPerSec: number
-  hitPct: number
-  input: number
-  out: number
-  /** Every token the session carried: input, cache read, cache write, output. */
-  total: number
-  turns: number
-}
-
-/** The response streaming right now; counted from characters, not by the API. */
-export type LiveStat = {
-  tokPerSec: number
-  out: number
-  seconds: number
+export type Row = {
+  /** Decode rate over the row's own decode windows. */
+  rate: number | null
+  /** Wait before the first generated chunk. */
+  ttftMs: number | null
+  /** Generated tokens. */
+  out: number | null
+  /** Uncached prompt tokens. */
+  input: number | null
+  /** Share of the prompt served from the cache, in percent. */
+  hit: number | null
+  /** Which prompt of the session this was, counting from 1. */
+  turn: number | null
+  /** Model calls the prompt made that returned usage. */
+  calls: number | null
+  /** input + cache read + cache write + out. */
+  total: number | null
 }
 
 export type Band = {
-  live: LiveStat | null
-  last: TurnStat
-  session: SessionStat
+  /** This prompt: live while it runs, then its final numbers. */
+  live: Row | null
+  /** The prompt before it. */
+  last: Row | null
+  /** Every finished prompt, plus this one while it runs. */
+  sess: Row
+  /** Whether `live` is still streaming. */
+  streaming: boolean
 }
 
 export type Tally = {
@@ -44,10 +35,23 @@ export type Tally = {
   cached: number
   written: number
   ttftMs: number
-  turns: number
+  calls: number
+  prompts: number
 }
 
-/** Counts summed so far for the turn in progress, one entry per request. */
+/** A finished prompt, kept for the live and last rows. */
+export type Snap = {
+  out: number
+  ms: number
+  input: number
+  cached: number
+  written: number
+  ttftMs: number
+  calls: number
+  turn: number
+}
+
+/** Counts summed so far for the prompt in progress, one entry per call. */
 export type Cur = {
   turnId: string
   out: number
@@ -55,12 +59,18 @@ export type Cur = {
   input: number
   cached: number
   written: number
-  /** Wait before this step's first generated chunk, in ms. */
   ttftMs: number
+  calls: number
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'ccstatus-band': { band: Band | null; tally: Tally | null; cur: Cur | null }
+    'ccstatus-band': {
+      band: Band | null
+      tally: Tally | null
+      cur: Cur | null
+      recent: Snap | null
+      prev: Snap | null
+    }
   }
 }

@@ -6,5 +6,55 @@
     "name": "gianni"
   },
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "col_rate": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the tok/s column. Decode rate: output tokens over the time spent generating them.",
+      "title": "tok/s column"
+    },
+    "col_ttft": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the ttft column. Wait before the prompt's first generated chunk: prefill plus gateway queueing.",
+      "title": "ttft column"
+    },
+    "col_out": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the out column. Tokens the model generated.",
+      "title": "out column"
+    },
+    "col_in": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the in column. Prompt tokens not served from the cache.",
+      "title": "in column"
+    },
+    "col_hit": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the hit column. Share of the prompt served from the cache.",
+      "title": "hit column"
+    },
+    "col_turn": {
+      "type": "boolean",
+      "default": false,
+      "description": "Show the turn column. Which prompt of the session this was, counting from 1.",
+      "title": "turn column"
+    },
+    "col_calls": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the calls column. Model calls the prompt made that returned usage.",
+      "title": "calls column"
+    },
+    "col_total": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the total column. Everything carried: uncached input + cache read + cache write + output.",
+      "title": "total column"
+    }
+  }
 }

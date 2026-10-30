@@ -7,48 +7,50 @@ A mod for the Claude Code desktop app that draws a small table in the band above
 ![The band above the prompt](assets/band.png)
 
 ```
-     tok/s · ttft ·   out ·   in ·   hit · turn · total
-live   ~96 ·    — ·   726 ·    — ·     — ·    7 ·     —
-last    58 · 1.2s · 16.8k · 138k · 97.8% ·    7 ·  6.5M
-sess    55 · 1.4s ·  410M ·  12M · 98.1% ·    7 ·  411M
+     tok/s · ttft ·   out ·   in ·   hit · calls · total
+live    58 · 1.2s · 16.8k · 138k · 97.8% ·     7 ·  6.5M
+last    51 · 1.9s ·  9.2k ·  96k · 98.3% ·     4 ·  5.1M
+sess    55 · 1.4s ·  410M ·  12M · 98.1% ·   133 ·  411M
 ```
 
-Same field, same column, on every row, so the eye reads one column down instead of hunting: each value is right-aligned on the widest in its column, and the row that comes and goes keeps its place. The rows are drawn in the surface's monospaced face with tabular digits — without that, a column of spaces lines up nothing.
+Same field, same column, on every row, so the eye reads one column down instead of hunting: each value is right-aligned on the widest in its column, and every row keeps its place. The rows are drawn in the surface's monospaced face with tabular digits — without that, a column of spaces lines up nothing.
 
 ## What each row means
 
-| Row | Field | Meaning |
-| --- | --- | --- |
-| `live` | `tok/s` | Decode rate of the reply streaming right now, **estimated** from the characters received (see the note below) |
-| | `out` | Estimated tokens of that reply so far |
-| `last` | `tok/s` | Decode rate of the turn just finished: output tokens over the time spent generating them, tool runs and prefill excluded |
-| | `ttft` | Wait before the turn's first generated chunk: prefill plus whatever the gateway spent queueing it |
-| | `out` | Tokens the model generated in that turn |
-| | `in` | Prompt tokens that were **not** served from the prompt cache |
-| | `hit` | Share of the turn's prompt tokens that came from the cache |
-| | `turn` | Which turn of the session this was, counting from 1 |
-| | `total` | Everything that turn carried: uncached input + cache reads + cache writes + output |
-| `sess` | `tok/s` | Session-wide decode rate: all output tokens over all generation time |
-| | `ttft` | Mean first-chunk wait over the session's turns |
-| | `out` | All output tokens this session |
-| | `in` | All uncached prompt tokens this session |
-| | `hit` | Session cache hit rate |
-| | `turn` | Turns finished in this session |
-| | `total` | Everything the session carried: uncached input + cache reads + cache writes + output |
+| Row | Meaning |
+| --- | --- |
+| `live` | **This prompt** (one thing you typed). While it runs, every column moves with it; a column not known yet shows `—`. Once it ends the row keeps its final numbers until your next prompt. |
+| `last` | **The prompt before it**, frozen when it ended. `—` throughout until a second prompt has finished. |
+| `sess` | **Everything in the session so far**, the running prompt included, so it grows while `live` does. |
 
-`total` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a turn adds up to 690k. That is the cost, not the context length. `—` marks a cell the row has no value for.
+| Column | Meaning |
+| --- | --- |
+| `tok/s` | Decode rate: output tokens over the time spent generating them. Tool runs and prefill are left out. While a reply streams it is **estimated** from the characters received (see below). |
+| `ttft` | Wait before the row's first generated chunk: prefill plus whatever the gateway spent queueing it. `sess` shows the mean over its prompts; a wait too short for the clock to separate reads `—`. |
+| `out` | Generated tokens. |
+| `in` | Prompt tokens that were **not** served from the prompt cache. |
+| `hit` | Share of the prompt tokens that came from the cache. |
+| `turn` | Which prompt of the session this was, counting from 1. Off by default. |
+| `calls` | Model calls the prompt made that returned usage: one prompt is usually several calls (answer → tool → answer), and a call that never got its usage (an interrupt) counts as none. |
+| `total` | Everything carried: uncached input + cache reads + cache writes + output. |
 
-All three rows move while a reply streams: `last` is the turn in flight, `sess` is the finished turns plus it. Only `live` is estimated in them; the one number that lags is a request's own prompt counts (`in`, `hit`), which the API states at that request's stop, so during the first request of a turn `last` reads `0` there.
+`total` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a prompt adds up to 690k. That is the cost, not the context length.
 
-`live` is the only estimated number. The API reports a response's token counts once, in its last chunk, so mid-stream there is nothing to count; the band counts CJK characters as one token and everything else as a quarter, then replaces the estimate with the API's own numbers when the response ends. It is good enough to watch, not to reconcile against a bill.
+A running prompt's own counts (`in`, `hit`, `total`) stay `—` until its first call stops, because the API states them at a call's stop. Everything else moves as the reply streams, and `turn.complete` settles the row on the API's own numbers.
+
+`live`'s `tok/s` and `out` are the only estimates. The API reports a response's token counts once, in its last chunk, so mid-stream there is nothing to count; the band counts CJK characters as one token and everything else as a quarter, then replaces the estimate with the API's own numbers when the response ends. It is good enough to watch, not to reconcile against a bill.
+
+## Columns
+
+Each column is its own switch under **Settings › Plugins › ccstatus-band** (the rows `/config` lists as `ccstatus-band.col_*`). `turn` is off by default; turn it on to see prompt numbers beside `calls`. With every column off the band draws nothing.
 
 ## Where the numbers come from
 
 Everything else is the API's own accounting, read from the engine's `turn.step` and `turn.complete` events:
 
-- **Per request, not per turn.** A turn is usually several requests (answer → tool → answer). Some gateways report only the last request's usage at `turn.complete`; the band sums every request's `stop` chunk instead, so `last` is the whole turn.
+- **Per call, not per prompt.** A prompt is usually several calls (answer → tool → answer). Some gateways report only the last call's usage at `turn.complete`; the band sums every call's `stop` chunk instead, so a row is the whole prompt.
 - **Subagents are excluded.** Their steps run their own loop; folding their tokens into the session rate would make it meaningless.
-- **Uncounted turns are skipped.** A gateway that answers a turn with an all-zero usage object leaves the band showing the previous numbers rather than `0 tok/s`.
+- **Uncounted prompts are skipped.** A gateway that answers a prompt with an all-zero usage object leaves the band showing the previous numbers rather than `0 tok/s`.
 
 ## Install
 
@@ -78,15 +80,15 @@ claude plugin test .          # the tests in tests/, against the real hook engin
 
 The layout:
 
-- `hooks/register.tsx` — the whole mod: rate accounting, the per-turn sum, the table
+- `hooks/register.tsx` — the whole mod: rate accounting, the per-call sum, the three rows, the table
 - `types/index.d.ts` — the shape of what it keeps in `$.state`
-- `tests/band.test.tsx` — decode-rate accounting, live estimate, uncounted turns, row layout
+- `tests/band.test.tsx` — the three rows, a running prompt's dashes, uncounted prompts, ttft, column switches
 
 ## Limitations
 
 - A field wider than its column (a `10.5M` total against a `5.0M` session) pushes that column one character right for the rest of the session.
-- `live` clears when a response ends and comes back with the next one's first chunk; between them `last` and `sess` keep their place.
-- Nothing draws during prefill or while a gateway queues the request: the stream has no chunk to count then, so the band shows the previous state until the first token arrives.
+- Before the session's first prompt the band draws nothing, and `last` stays `—` until a second prompt has finished.
+- Nothing changes during prefill or while a gateway queues the call: the stream has no chunk to count then, so the live row keeps its last state until the first token arrives.
 - No cost figure: it needs a price table per model, and this one is used behind several gateways.
 
 ## License
