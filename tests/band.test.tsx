@@ -280,3 +280,20 @@ test('with every column off the band draws nothing', { timeoutMs: 15000, options
   expect(tree.children ?? []).toEqual([])
 
 })
+
+test('a hit rate just short of all of it never reads 100', { timeoutMs: 15000 }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  // 1 uncached token in 163k: 99.9994%, which rounding used to show as 100.0.
+  const cost = usage({
+    output_tokens: 50,
+    input_tokens: 1,
+    cache_read_input_tokens: 163000,
+    cache_creation_input_tokens: 0,
+  })
+  on('turn.step', call(clock, cost, 1000))
+  on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+  await runStep($, 'p1')
+  await finish($, 'p1', cost)
+
+  expect((await rows($))[1]).toMatch(/· 99\.9% · 1 · 163k · /)
+})

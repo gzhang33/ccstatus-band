@@ -29,7 +29,7 @@ Every field keeps its column, so you read one column down instead of hunting. Va
 | `ttft` | Wait before the row's first generated chunk: prefill plus whatever the gateway spent queueing it. `sess` shows the mean over its prompts; a wait too short for the clock to separate reads `—`. |
 | `out` | Generated tokens. |
 | `in` | Prompt tokens that were **not** served from the prompt cache. |
-| `hit` | Share of the prompt tokens that came from the cache. |
+| `hit` | Share of the prompt tokens that came from the cache: `cache read ÷ (uncached input + cache read + cache write)`, over the row's calls. Floored to one decimal, so `100.0%` means every prompt token was a read and 99.96% reads `99.9%`. |
 | `turn` | Which prompt of the session this was, counting from 1. Off by default. |
 | `calls` | Model calls the prompt made that returned usage: one prompt is usually several calls (answer → tool → answer), and a call that never got its usage (an interrupt) counts as none. |
 | `total` | Everything carried: uncached input + cache reads + cache writes + output. |
@@ -51,6 +51,7 @@ Each column is its own switch under **Settings › Plugins › ccstatus-band** (
 Beyond the estimates on the live row, everything is the API's own accounting, read from the engine's `turn.step` and `turn.complete` events:
 
 - **Per call, not per prompt.** A prompt is usually several calls (answer → tool → answer). Some gateways report only the last call's usage at `turn.complete`; the band sums every call's `stop` chunk instead, so a row is the whole prompt.
+- **Cache hit rates are high by arithmetic.** A long conversation re-sent on every call is nearly all cache reads: this session's own calls run 98–99.9%, because only the new turn's messages, one tool result or the last answer are uncached. A cache-aware router that rewrites the prefix between calls (DeepSeek's own docs suggest 96% as an expectation) lowers that; the band reports what the gateway returned, not what the provider benchmarks.
 - **Subagents are excluded.** Their steps run their own loop; folding their tokens into the session rate would make it meaningless.
 - **Uncounted prompts are skipped.** A gateway that answers a prompt with an all-zero usage object leaves the band showing the previous numbers rather than `0 tok/s`.
 

@@ -15,9 +15,11 @@ let seq = 0
 // prefill (TTFT) and tool execution stay out of the rate. Under 100ms the span
 // is too short to mean anything and is left at zero.
 const rate = (tokens: number, ms: number) => (ms >= 100 ? (tokens / ms) * 1000 : 0)
-// Whole-percent rounding collapses every real hit above 99.5 to "100"; keep a
-// decimal so a 163k-token prompt with 300 uncached tokens still reads 99.8.
-const pct = (cached: number, denom: number) => (denom > 0 ? (cached / denom) * 100 : 0)
+// Whole-percent rounding collapses every real hit above 99.5 to "100", so the
+// value is floored to a decimal: 99.96 reads 99.9, and 100 means every prompt
+// token was a cache read. One uncached token in 163k still reads 99.9.
+const pct = (cached: number, denom: number) =>
+  denom > 0 ? Math.floor((cached / denom) * 1000) / 10 : 0
 const fmtRate = (v: number) => (v >= 10 ? String(Math.round(v)) : v.toFixed(1))
 const fmtTokens = (v: number) => {
   if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
