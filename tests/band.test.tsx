@@ -261,10 +261,12 @@ test('band estimates a live rate while a response streams', { timeoutMs: 15000 }
   // One ASCII character already streamed plus 4 CJK and one more ASCII: 4.5
   // estimated tokens over 1 s.
   // The rows below keep their place while the live row streams above them.
+  // While the reply streams, both rows already carry it: last is the turn in
+  // flight, sess is the finished turn plus the reply so far.
   const rows4 = (await rowTexts(ui)).slice(1)
   expect(rows4[0]).toMatch(/^live ~[\d.]+ · — · [\d.]+ · — · — · 2 · —$/)
-  expect(rows4[1]).toMatch(/^last [\d.]+ · 0\.0s · 6 · 100 · 90\.0% · 1 · 1k$/)
-  expect(rows4[2]).toMatch(/^sess [\d.]+ · 0\.0s · 6 · 100 · 90\.0% · 1 · 1k$/)
+  expect(rows4[1]).toMatch(/^last [\d.]+ · 0\.0s · [\d.]+ · 0 · 0\.0% · 2 · 5$/)
+  expect(rows4[2]).toMatch(/^sess [\d.]+ · 0\.0s · [\d.]+ · 100 · 90\.0% · 2 · 1k$/)
 
   release()
   await it.next()

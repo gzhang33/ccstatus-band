@@ -51,6 +51,68 @@ const est = (s: string) => {
   return n
 }
 
+/** A turn with nothing counted yet. */
+const ZERO_TURN: TurnStat = { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turn: 0, ttftMs: 0, seconds: 0 }
+const ZERO_SESS: SessionStat = { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0, ttftMs: 0 }
+
+/**
+ * The band from the finished turns plus the one still running. `open` is that
+ * turn so far, `extra` the reply streaming now, whose counts the API reports
+ * only at its stop; both rows therefore move with the answer instead of
+ * appearing when the turn ends.
+ */
+const bandOf = (
+  done: Partial<Tally> | null,
+  open: Cur | null,
+  extra: { out: number; ms: number },
+  live: LiveStat | null,
+): Band => {
+  const t = {
+    out: done?.out ?? 0,
+    ms: done?.ms ?? 0,
+    input: done?.input ?? 0,
+    cached: done?.cached ?? 0,
+    written: done?.written ?? 0,
+    ttftMs: done?.ttftMs ?? 0,
+    turns: done?.turns ?? 0,
+  }
+  const c = {
+    out: (open?.out ?? 0) + extra.out,
+    ms: (open?.ms ?? 0) + extra.ms,
+    input: open?.input ?? 0,
+    cached: open?.cached ?? 0,
+    written: open?.written ?? 0,
+    ttftMs: open?.ttftMs ?? 0,
+  }
+  const prompt = c.input + c.cached + c.written
+  // A streaming reply is a turn running even before its first step is counted.
+  const running = open !== null || live !== null
+  const turns = t.turns + (running ? 1 : 0)
+
+  return {
+    live,
+    last: {
+      tokPerSec: rate(c.out, c.ms),
+      hitPct: pct(c.cached, prompt),
+      input: c.input,
+      out: c.out,
+      total: prompt + c.out,
+      turn: running ? turns : t.turns,
+      ttftMs: c.ttftMs,
+      seconds: c.ms / 1000,
+    },
+    session: {
+      tokPerSec: rate(t.out + c.out, t.ms + c.ms),
+      hitPct: pct(t.cached + c.cached, t.input + t.cached + t.written + prompt),
+      input: t.input + c.input,
+      out: t.out + c.out,
+      total: t.input + t.cached + t.written + t.out + prompt + c.out,
+      turns,
+      ttftMs: t.ttftMs + c.ttftMs,
+    },
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     seq = -1
@@ -75,6 +137,9 @@ export const register: Register = on => {
     let ttftMs = 0
     // Whether a step of this turn is already counting it.
     const curTurn = (await read($, cur))?.turnId === e.turnId
+    const done = (await read($, tally)) as Partial<Tally> | null
+    // The turn so far: earlier steps of this turn, then each one as it ends.
+    let open = curTurn ? ((await read($, cur)) as Cur) : null
     // This one response's counts, as its stop chunk reports them.
     let out = 0
     let input = 0
@@ -126,24 +191,18 @@ export const register: Register = on => {
           out: streamed,
           seconds: (now - first) / 1000,
         }
-        await update($, band, b => ({
-          last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turn: 0, ttftMs: 0, seconds: 0 },
-          session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0, ttftMs: 0 },
-          live,
-        }))
+        // The reply on screen counts toward both rows as it arrives.
+        const now2 = bandOf(done, open, { out: streamed, ms: now - first }, live)
+        await update($, band, () => now2)
       }
 
       yield c
     }
 
-    // A tool run or the next step is not a decode window; only the row clears.
+    // A tool run or the next step is not a decode window; only that row clears.
     // Written even with no band yet, so the first turn's rows exist by the time
     // its first chunk streams.
-    await update($, band, b => ({
-      last: b?.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turn: 0, ttftMs: 0, seconds: 0 },
-      session: b?.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0, ttftMs: 0 },
-      live: null,
-    }))
+    await update($, band, () => bandOf(done, open, { out: 0, ms: 0 }, null))
 
     if (!first || !last) {
       return
@@ -164,14 +223,18 @@ export const register: Register = on => {
       ttftMs: prev?.turnId === e.turnId && prev.ttftMs > 0 ? prev.ttftMs : ttftMs,
     }
 
-    await update($, cur, () => ({
+    open = {
       turnId: e.turnId,
-      out: (base.out ?? 0) + out,
-      ms: (base.ms ?? 0) + Math.max(0, last - first),
-      input: (base.input ?? 0) + input,
-      cached: (base.cached ?? 0) + cached,
-      written: (base.written ?? 0) + written,
-    }))
+      out: base.out + out,
+      ms: base.ms + Math.max(0, last - first),
+      input: base.input + input,
+      cached: base.cached + cached,
+      written: base.written + written,
+      ttftMs: base.ttftMs,
+    }
+
+    await update($, cur, () => open as Cur)
+    await update($, band, () => bandOf(done, open, { out: 0, ms: 0 }, null))
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -262,8 +325,8 @@ export const register: Register = on => {
     // Values written by the earlier band shape lack live and the token totals.
     const live = shown.live ?? null
     const num = (v: number | undefined) => v ?? 0
-    const mainLoop = shown.last ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turn: 0, ttftMs: 0, seconds: 0 }
-    const sess = shown.session ?? { tokPerSec: 0, hitPct: 0, input: 0, out: 0, total: 0, turns: 0, ttftMs: 0 }
+    const mainLoop = shown.last ?? ZERO_TURN
+    const sess = shown.session ?? ZERO_SESS
 
     const { Box, Text } = $.ui.resolve(e)
 
@@ -290,7 +353,7 @@ export const register: Register = on => {
       col("in", "", fmtTokens(num(mainLoop.input)), fmtTokens(num(sess.input))),
       col("hit", "", `${pctF(num(mainLoop.hitPct))}%`, `${pctF(num(sess.hitPct))}%`),
       // The turn in progress counts from the session's finished ones.
-      col("turn", live ? String(num(sess.turns) + 1) : "", String(num(mainLoop.turn)), String(num(sess.turns))),
+      col("turn", live ? String(num(mainLoop.turn)) : "", String(num(mainLoop.turn)), String(num(sess.turns))),
       col("total", "", fmtTokens(num(mainLoop.total)), fmtTokens(num(sess.total))),
     ] as const
 

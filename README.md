@@ -38,6 +38,8 @@ Same field, same column, on every row, so the eye reads one column down instead 
 
 `total` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a turn adds up to 690k. That is the cost, not the context length. `—` marks a cell the row has no value for.
 
+All three rows move while a reply streams: `last` is the turn in flight, `sess` is the finished turns plus it. Only `live` is estimated in them; the one number that lags is a request's own prompt counts (`in`, `hit`), which the API states at that request's stop, so during the first request of a turn `last` reads `0` there.
+
 `live` is the only estimated number. The API reports a response's token counts once, in its last chunk, so mid-stream there is nothing to count; the band counts CJK characters as one token and everything else as a quarter, then replaces the estimate with the API's own numbers when the response ends. It is good enough to watch, not to reconcile against a bill.
 
 ## Where the numbers come from
@@ -83,7 +85,7 @@ The layout:
 ## Limitations
 
 - A field wider than its column (a `10.5M` total against a `5.0M` session) pushes that column one character right for the rest of the session.
-- `live` clears when a response ends and comes back with the next one's first chunk; between them the `last` row keeps its place.
+- `live` clears when a response ends and comes back with the next one's first chunk; between them `last` and `sess` keep their place.
 - Nothing draws during prefill or while a gateway queues the request: the stream has no chunk to count then, so the band shows the previous state until the first token arrives.
 - No cost figure: it needs a price table per model, and this one is used behind several gateways.
 
