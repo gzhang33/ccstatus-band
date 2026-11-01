@@ -7,10 +7,10 @@ A small table above the prompt of the Claude Code desktop app. Three rows: the p
 ![The band above the prompt](assets/band.png)
 
 ```
-     tok/s · ttft ·  out ·   in ·   hit · calls · total · model ·   tool
-live   218 · 6.2s · 4.3k · 6.6k · 99.9% ·    19 ·  9.2M · 2m41s ·  3m08s
-last    97 · 5.0s ·   49 · 2.3k · 99.5% ·     1 ·  474k · 14.2s ·      —
-sess   199 · 5.0s ·  60k · 116k · 99.9% ·   226 · 94.1M · 1h12m · 58m04s
+     tok/s · ttft · slowest · out ·   in ·   hit · calls · total · model ·  tool
+live   237 · 3.2s ·   48.9s · 14k · 275k · 98.2% ·    59 · 16.2M ·     — · 7m32s
+last   113 · 2.3s ·    2.3s ·  80 · 1.3k · 99.4% ·     1 ·  257k ·  3.0s ·  0.0s
+sess   239 · 4.1s ·   48.9s · 56k · 520k · 98.9% ·   219 · 50.9M ·     — · 7m32s
 ```
 
 Every field keeps its column, so you read one column down instead of hunting. Values are right-aligned on the widest in their column, and no row appears or disappears. The rows use the surface's monospaced face with tabular digits; in a proportional face, padded spaces line nothing up.
@@ -26,7 +26,8 @@ Every field keeps its column, so you read one column down instead of hunting. Va
 | Column | Meaning |
 | --- | --- |
 | `tok/s` | Decode rate: output tokens over the time spent generating them. Tool runs and prefill are left out. While a reply streams it is **estimated** from the characters received (see below). |
-| `ttft` | Wait before the row's first generated chunk: prefill plus whatever the gateway spent queueing it. `sess` shows the mean over its prompts; a wait too short for the clock to separate reads `—`. |
+| `ttft` | **Mean** wait per model call before its first generated chunk: prefill plus whatever the gateway spent queueing it. Divided by the calls that were actually timed, not by every call. |
+| `slowest` | The longest of those waits. One call stuck behind a gateway queue moves this far from `ttft`, which the mean hides; when the two match, the row was one call. |
 | `out` | Generated tokens. |
 | `in` | Prompt tokens that were **not** served from the prompt cache. |
 | `hit` | Share of the prompt tokens that came from the cache: `cache read ÷ (uncached input + cache read + cache write)`, over the row's calls. Floored to one decimal, so `100.0%` means every prompt token was a read and 99.96% reads `99.9%`. |
@@ -92,6 +93,7 @@ The layout:
 - A field wider than its column (a `10.5M` total against a `5.0M` session) pushes that column one character right for the rest of the session.
 - Before the session's first prompt the band draws nothing, and `last` stays `—` until a second prompt has finished.
 - Nothing changes during prefill or while a gateway queues the call: the stream has no chunk to count then, so the live row keeps its last state until the first token arrives.
+- `ttft` is measured at the engine's hook, not at the socket: it starts when the request reaches this machine's side of the loop and ends at the first chunk, so it includes queueing and prefill but not the model's own view of when it started reading.
 - `model` and `tool` are wall time, not billed time: a gateway that queues the call for 30s counts 30s. The session's `model` starts when the mod loads, so a session resumed from disk shows time it did not cause.
 - No cost figure: it needs a price table per model, and this one is used behind several gateways.
 

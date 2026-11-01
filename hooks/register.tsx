@@ -70,8 +70,20 @@ const ZERO_TALLY: Tally = {
   cached: 0,
   written: 0,
   ttftMs: 0,
+  ttftMaxMs: 0,
   calls: 0,
   prompts: 0,
+}
+
+/**
+ * The wait before a prompt's first chunk, per call: the mean people feel and
+ * the slowest call, which one long gateway queue can pull far apart.
+ */
+const meanOf = (s: Snap | Cur) => {
+  return {
+    mean: s.ttftSamples > 0 ? s.ttftMs / s.ttftSamples : null,
+    max: s.ttftMaxMs > 0 ? s.ttftMaxMs : null,
+  }
 }
 
 /** A finished prompt as a row. */
@@ -79,7 +91,8 @@ const rowOf = (s: Snap): Row => ({
   rate: rate(s.out, s.ms),
   // A zero wait is not a measurement: the clock did not separate the request
   // from its first chunk.
-  ttftMs: s.ttftMs > 0 ? s.ttftMs : null,
+  ttftMs: meanOf(s).mean,
+  ttftMaxMs: meanOf(s).max,
   out: s.out,
   input: s.input,
   hit: pct(s.cached, s.input + s.cached + s.written),
@@ -117,13 +130,19 @@ const bandOf = (
   const cached = t.cached + (open?.cached ?? 0)
   const written = t.written + (open?.written ?? 0)
   const ttft = t.ttftMs + (open?.ttftMs ?? 0) + extra.ttftMs
+  const ttftSamples =
+    (t.ttftSamples ?? 0) + (open?.ttftSamples ?? 0) + (extra.ttftMs > 0 ? 1 : 0)
+  const ttftMax = Math.max(t.ttftMaxMs ?? 0, open?.ttftMaxMs ?? 0, extra.ttftMs)
   const calls = t.calls + (open?.calls ?? 0)
   const modelMs = t.modelMs + (open?.modelMs ?? 0) + extra.modelMs
   const toolMs = t.toolMs + (open?.toolMs ?? 0)
 
   const sess: Row = {
     rate: rate(out, ms),
-    ttftMs: ttft > 0 ? ttft / prompts : null,
+    // The session's mean is over calls, not over prompts: a prompt with 40
+    // calls says more about the wait than one with a single call.
+    ttftMs: ttftSamples > 0 ? ttft / ttftSamples : null,
+    ttftMaxMs: ttftMax > 0 ? ttftMax : null,
     out,
     input,
     hit: pct(cached, input + cached + written),
@@ -141,7 +160,12 @@ const bandOf = (
     const promptTokens = (open?.input ?? 0) + (open?.cached ?? 0) + (open?.written ?? 0)
     liveRow = {
       rate: live ? live.tokPerSec : rate((open?.out ?? 0) + extra.out, (open?.ms ?? 0) + extra.ms),
-      ttftMs: ((open?.ttftMs ?? 0) + extra.ttftMs) || null,
+      ttftMs:
+        (open?.ttftSamples ?? 0) + (extra.ttftMs > 0 ? 1 : 0) > 0
+          ? ((open?.ttftMs ?? 0) + extra.ttftMs) /
+            ((open?.ttftSamples ?? 0) + (extra.ttftMs > 0 ? 1 : 0))
+          : null,
+      ttftMaxMs: Math.max(open?.ttftMaxMs ?? 0, extra.ttftMs) || null,
       out: (open?.out ?? 0) + extra.out,
       input: counted ? (open?.input ?? 0) : null,
       hit: counted ? pct(open?.cached ?? 0, promptTokens) : null,
@@ -232,6 +256,8 @@ export const register: Register = (on, options) => {
             cached: 0,
             written: 0,
             ttftMs: 0,
+            ttftSamples: 0,
+            ttftMaxMs: 0,
             calls: 0,
             endedAt: askedAt,
           }))
@@ -283,8 +309,11 @@ export const register: Register = (on, options) => {
       input: (open?.input ?? 0) + input,
       cached: (open?.cached ?? 0) + cached,
       written: (open?.written ?? 0) + written,
-      // The wait the person noticed is the prompt's first one.
-      ttftMs: open?.ttftMs || ttftMs,
+      // Every call's wait is kept: the mean needs them all, and the slowest
+      // one is what a person notices.
+      ttftMs: (open?.ttftMs ?? 0) + (counted ? ttftMs : 0),
+      ttftSamples: (open?.ttftSamples ?? 0) + (counted && ttftMs > 0 ? 1 : 0),
+      ttftMaxMs: Math.max(open?.ttftMaxMs ?? 0, counted ? ttftMs : 0),
       calls: (open?.calls ?? 0) + (counted ? 1 : 0),
       endedAt: counted ? (await $.clock.now()) : (open?.endedAt ?? askedAt),
     }
@@ -315,6 +344,8 @@ export const register: Register = (on, options) => {
       cached: usage?.cache_read_input_tokens ?? 0,
       written: usage?.cache_creation_input_tokens ?? 0,
       ttftMs: 0,
+      ttftSamples: 0,
+      ttftMaxMs: 0,
       calls: usage ? 1 : 0,
     }
 
@@ -335,6 +366,8 @@ export const register: Register = (on, options) => {
       cached: prompt.cached,
       written: prompt.written,
       ttftMs: prompt.ttftMs,
+      ttftSamples: prompt.ttftSamples,
+      ttftMaxMs: prompt.ttftMaxMs,
       calls: prompt.calls,
       turn: t.prompts + 1,
     }
@@ -347,6 +380,7 @@ export const register: Register = (on, options) => {
       cached: t.cached + snap.cached,
       written: t.written + snap.written,
       ttftMs: t.ttftMs + snap.ttftMs,
+      ttftMaxMs: Math.max(t.ttftMaxMs, snap.ttftMaxMs),
       calls: t.calls + snap.calls,
       prompts: t.prompts + 1,
     }
@@ -374,6 +408,7 @@ export const register: Register = (on, options) => {
       [
         ['rate', 'rate', 'tok/s'],
         ['ttft', 'ttftMs', 'ttft'],
+        ['ttftmax', 'ttftMaxMs', 'slowest'],
         ['out', 'out', 'out'],
         ['in', 'input', 'in'],
         ['hit', 'hit', 'hit'],
@@ -396,7 +431,7 @@ export const register: Register = (on, options) => {
       const v = row[key]
       if (v === null) return ''
       if (key === 'rate') return fmtRate(v)
-      if (key === 'ttftMs') return `${(v / 1000).toFixed(1)}s`
+      if (key === 'ttftMs' || key === 'ttftMaxMs') return `${(v / 1000).toFixed(1)}s`
       if (key === 'modelMs' || key === 'toolMs') return secs(v)
       if (key === 'hit') return `${v.toFixed(1)}%`
       if (key === 'turn' || key === 'calls') return String(v)

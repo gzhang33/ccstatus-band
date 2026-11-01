@@ -90,19 +90,19 @@ test('live is this prompt, last is the one before, sess is all', { timeoutMs: 15
   await finish($, 'p1', first)
 
   const one = await rows($)
-  expect(one[0]).toBe('tok/s · ttft · out · in · hit · calls · total · model · tool')
-  expect(one[1]).toMatch(/^live [\d.]+ · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
-  expect(one[2]).toBe('last — · — · — · — · — · — · — · — · —')
-  expect(one[3]).toMatch(/^sess [\d.]+ · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(one[0]).toBe('tok/s · ttft · slowest · out · in · hit · calls · total · model · tool')
+  expect(one[1]).toMatch(/^live [\d.]+ · — · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(one[2]).toBe('last ' + '— · '.repeat(9) + '—')
+  expect(one[3]).toMatch(/^sess [\d.]+ · — · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+s|—) · 0\.0s$/)
 
   cost = second
   await runStep($, 'p2')
   await finish($, 'p2', second)
 
   const two = await rows($)
-  expect(two[1]).toMatch(/^live [\d.]+ · — · 200 · 500 · 80\.0% · 1 · 5\.2k · (?:[\d.]+|—) · 0\.0s$/)
-  expect(two[2]).toMatch(/^last [\d.]+ · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
-  expect(two[3]).toMatch(/^sess [\d.]+ · — · 600 · 1\.5k · 80\.0% · 2 · 16k · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(two[1]).toMatch(/^live [\d.]+ · — · — · 200 · 500 · 80\.0% · 1 · 5\.2k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(two[2]).toMatch(/^last [\d.]+ · — · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(two[3]).toMatch(/^sess [\d.]+ · — · — · 600 · 1\.5k · 80\.0% · 2 · 16k · (?:[\d.]+s|—) · 0\.0s$/)
 })
 
 test('a running prompt shows what it knows and a dash for the rest', { timeoutMs: 15000 }, async ($, on) => {
@@ -138,17 +138,17 @@ test('a running prompt shows what it knows and a dash for the rest', { timeoutMs
 
   const running = await rows($)
   // Prompt counts are unknown until this call's stop: dashes, not zeros.
-  expect(running[1]).toMatch(/^live [\d.]+ · — · 2 · — · — · 0 · — · (?:[\d.]+|—) · 0\.0s$/)
-  expect(running[2]).toBe('last — · — · — · — · — · — · — · — · —')
-  expect(running[3]).toMatch(/^sess [\d.]+ · — · 2 · 0 · 0\.0% · 0 · 2 · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(running[1]).toMatch(/^live [\d.]+ · — · — · 2 · — · — · 0 · — · (?:[\d.]+|—) · 0\.0s$/)
+  expect(running[2]).toBe('last ' + '— · '.repeat(9) + '—')
+  expect(running[3]).toMatch(/^sess [\d.]+ · — · — · 2 · 0 · 0\.0% · 0 · 2 · (?:[\d.]+s|—) · 0\.0s$/)
 
   release()
   while (!(await it.next()).done) void 0
   await finish($, 'p1', cost)
 
   const done = await rows($)
-  expect(done[1]).toMatch(/^live [\d.]+ · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+|—) · 0\.0s$/)
-  expect(done[3]).toMatch(/^sess [\d.]+ · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(done[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(done[3]).toMatch(/^sess [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+s|—) · 0\.0s$/)
 })
 
 test('a prompt with nothing counted leaves the band alone', { timeoutMs: 15000 }, async ($, on) => {
@@ -174,7 +174,7 @@ test('a prompt with nothing counted leaves the band alone', { timeoutMs: 15000 }
   await finish($, 'p2', nothing)
 
   const after = await rows($)
-  expect(after[1]).toMatch(/^live [\d.]+ · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(after[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+|—) · 0\.0s$/)
   expect(after[3]).toMatch(/· 1 · 1k · /)
 })
 
@@ -218,7 +218,7 @@ test('ttft survives its prompt and shows while it streams', { timeoutMs: 15000 }
 
   const done = await rows($)
   expect(done[1]).toMatch(/^live [\d.]+ · 1\.2s/)
-  expect(done[3]).toMatch(/^sess [\d.]+ · 1\.2s/)
+  expect(done[3]).toMatch(/^sess [\d.]+ · — · 1\.2s/)
 })
 
 const off = (keys: string[]) =>
@@ -237,10 +237,10 @@ test('turn is off by default', { timeoutMs: 15000 }, async ($, on) => {
   await runStep($, 'p1')
   await finish($, 'p1', cost)
 
-  expect((await rows($))[0]).toBe('tok/s · ttft · out · in · hit · calls · total · model · tool')
+  expect((await rows($))[0]).toBe('tok/s · ttft · slowest · out · in · hit · calls · total · model · tool')
 })
 
-test('a switched-off column leaves the table', { timeoutMs: 15000, options: off(['ttft', 'hit', 'turn', 'calls', 'total', 'model', 'tool']) }, async ($, on) => {
+test('a switched-off column leaves the table', { timeoutMs: 15000, options: off(['ttft', 'ttftmax', 'hit', 'turn', 'calls', 'total', 'model', 'tool']) }, async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
   const cost = usage({
     output_tokens: 100,
@@ -256,7 +256,7 @@ test('a switched-off column leaves the table', { timeoutMs: 15000, options: off(
   expect((await rows($))[0]).toBe('tok/s · out · in')
 })
 
-test('with every column off the band draws nothing', { timeoutMs: 15000, options: off(['rate', 'ttft', 'out', 'in', 'hit', 'turn', 'calls', 'total', 'model', 'tool']) }, async ($, on) => {
+test('with every column off the band draws nothing', { timeoutMs: 15000, options: off(['rate', 'ttft', 'ttftmax', 'out', 'in', 'hit', 'turn', 'calls', 'total', 'model', 'tool']) }, async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
   const cost = usage({
     output_tokens: 100,

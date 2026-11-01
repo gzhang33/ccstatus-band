@@ -17,8 +17,14 @@
     "col_ttft": {
       "type": "boolean",
       "default": true,
-      "description": "Show the ttft column. Wait before the prompt's first generated chunk: prefill plus gateway queueing.",
+      "description": "Show the ttft column. Mean wait per model call before its first generated chunk: prefill plus gateway queueing.",
       "title": "ttft column"
+    },
+    "col_ttftmax": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the slowest column. The longest wait for a call's first token in the row: one queued call can be far above the mean.",
+      "title": "slowest column"
     },
     "col_out": {
       "type": "boolean",

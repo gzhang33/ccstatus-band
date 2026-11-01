@@ -1,8 +1,10 @@
 export type Row = {
   /** Decode rate over the row's own decode windows. */
   rate: number | null
-  /** Wait before the first generated chunk. */
+  /** Mean wait before each call's first generated chunk. */
   ttftMs: number | null
+  /** The slowest of those waits. */
+  ttftMaxMs: number | null
   /** Generated tokens. */
   out: number | null
   /** Uncached prompt tokens. */
@@ -40,7 +42,10 @@ export type Tally = {
   input: number
   cached: number
   written: number
+  /** Summed waits, and how many waits were actually measured. */
   ttftMs: number
+  ttftSamples: number
+  ttftMaxMs: number
   calls: number
   prompts: number
 }
@@ -54,7 +59,10 @@ export type Snap = {
   input: number
   cached: number
   written: number
+  /** Summed waits, and how many waits were actually measured. */
   ttftMs: number
+  ttftSamples: number
+  ttftMaxMs: number
   calls: number
   turn: number
 }
@@ -69,7 +77,10 @@ export type Cur = {
   input: number
   cached: number
   written: number
+  /** Summed waits, and how many waits were actually measured. */
   ttftMs: number
+  ttftSamples: number
+  ttftMaxMs: number
   calls: number
   /** When its last call stopped, for the tool time the next one follows. */
   endedAt?: number
