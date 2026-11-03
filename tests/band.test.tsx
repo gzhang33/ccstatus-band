@@ -297,3 +297,46 @@ test('a hit rate just short of all of it never reads 100', { timeoutMs: 15000 },
 
   expect((await rows($))[1]).toMatch(/· 99\.9% · 1 · 163k · /)
 })
+
+test('a gateway that counts only at turn.complete still fills the rows', { timeoutMs: 15000 }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  // This gateway's stop chunks state zero and its turn.complete states the
+  // prompt's own totals: the summed calls are worthless, the prompt is not.
+  const nothing = usage({
+    output_tokens: 0,
+    input_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  })
+  const real = usage({
+    output_tokens: 100,
+    input_tokens: 900,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  })
+
+  on('turn.step', async function* ($, e) {
+    yield { kind: 'text', index: 0, text: 'x' }
+    await clock.advance(1000)
+    yield { kind: 'stop', stopReason: 'end_turn', usage: nothing }
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: 'x',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: nothing,
+    }
+  })
+  on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+
+  await runStep($, 'p1')
+  await finish($, 'p1', real)
+  expect((await rows($))[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k/)
+
+  await runStep($, 'p2')
+  await finish($, 'p2', real)
+  const two = await rows($)
+  expect(two[2]).toMatch(/^last [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k/)
+  expect(two[3]).toMatch(/^sess [\d.]+ · — · — · 200 · 1\.8k · 0\.0% · 2 · 2k/)
+})

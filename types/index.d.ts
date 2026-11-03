@@ -84,6 +84,8 @@ export type Cur = {
   calls: number
   /** When its last call stopped, for the tool time the next one follows. */
   endedAt?: number
+  /** When the prompt's first call was asked, for a prompt that timed no call. */
+  startedAt?: number
 }
 
 declare module 'claude-code' {

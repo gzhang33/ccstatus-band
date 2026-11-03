@@ -54,7 +54,7 @@ Beyond the estimates on the live row, everything is the API's own accounting, re
 - **Per call, not per prompt.** A prompt is usually several calls (answer → tool → answer). Some gateways report only the last call's usage at `turn.complete`; the band sums every call's `stop` chunk instead, so a row is the whole prompt.
 - **Cache hit rates are high by arithmetic.** A long conversation re-sent on every call is nearly all cache reads: this session's own calls run 98–99.9%, because only the new turn's messages, one tool result or the last answer are uncached. A cache-aware router that rewrites the prefix between calls (DeepSeek's own docs suggest 96% as an expectation) lowers that; the band reports what the gateway returned, not what the provider benchmarks.
 - **Subagents are excluded.** Their steps run their own loop; folding their tokens into the session rate would make it meaningless.
-- **Uncounted prompts are skipped.** A gateway that answers a prompt with an all-zero usage object leaves the band showing the previous numbers rather than `0 tok/s`.
+- **The prompt's own report wins over its calls.** Some gateways state zero usage on every stop chunk and the real counts only at the end of the prompt. Because a prompt is one question, its total is trustworthy there: the band fills any count the calls did not state, so such a session still shows numbers and `last` still fills. Only a prompt that states nothing at all is skipped.
 
 ## Install
 

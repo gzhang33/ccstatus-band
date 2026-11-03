@@ -260,6 +260,7 @@ export const register: Register = (on, options) => {
             ttftMaxMs: 0,
             calls: 0,
             endedAt: askedAt,
+            startedAt: askedAt,
           }))
         }
       }
@@ -334,7 +335,7 @@ export const register: Register = (on, options) => {
     const usage = e.usage
     // No call heard (an interrupt, a call this hook was not above): the
     // prompt's own report is all there is, and it covers its last call alone.
-    const prompt: Cur = mine ?? {
+    const prompt: Cur = { ...(mine ?? {
       turnId: e.turnId,
       out: usage?.output_tokens ?? 0,
       ms: 0,
@@ -347,12 +348,33 @@ export const register: Register = (on, options) => {
       ttftSamples: 0,
       ttftMaxMs: 0,
       calls: usage ? 1 : 0,
+    }) }
+
+    // A prompt is one question, so its token counts are trustworthy even when a
+    // call's are not: this gateway reports zero usage on the stop chunk of many
+    // calls and the real counts only at `turn.complete`. Trusting the summed
+    // calls over the prompt would freeze the session at "0 · 0" and leave
+    // `last` empty, so the prompt's own report fills any count the calls did
+    // not state, and only a prompt that states nothing is skipped.
+    const stated = usage !== null && (usage.output_tokens ?? 0) + (usage.input_tokens ?? 0) +
+      (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) > 0
+    if (stated) {
+      prompt.out = Math.max(prompt.out, usage?.output_tokens ?? 0)
+      prompt.input = Math.max(prompt.input, usage?.input_tokens ?? 0)
+      prompt.cached = Math.max(prompt.cached, usage?.cache_read_input_tokens ?? 0)
+      prompt.written = Math.max(prompt.written, usage?.cache_creation_input_tokens ?? 0)
+      prompt.calls = Math.max(prompt.calls, 1)
     }
 
-    // This gateway answers some prompts with nothing counted; taken at face
-    // value such a prompt would draw "0 tok/s" over the real one.
     if (prompt.out + prompt.input + prompt.cached + prompt.written === 0) {
       return next(e)
+    }
+
+    const endedNow = await $.clock.now()
+    // No call timed (the zero-usage case): the prompt's own start to now is the
+    // model time, tool runs included, which is as close as its data allows.
+    if (prompt.modelMs === 0 && prompt.startedAt) {
+      prompt.modelMs = Math.max(0, endedNow - prompt.startedAt)
     }
 
     const t = ((await read($, tally)) as Tally | null) ?? ZERO_TALLY
