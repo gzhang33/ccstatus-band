@@ -1,7 +1,7 @@
 {
   "name": "ccstatus-band",
   "version": "0.1.0",
-  "description": "Three rows above the Claude Code prompt: this prompt, the one before it and the session, with decode rate, ttft, tokens, cache hit rate, model calls, and model vs tool time",
+  "description": "Three rows above the Claude Code prompt: this prompt, the one before it and the session, with decode rate, ttft, tokens, cache hit rate, calls, billed vs peak tokens and model vs tool time",
   "author": {
     "name": "gianni"
   },
@@ -59,8 +59,14 @@
     "col_total": {
       "type": "boolean",
       "default": true,
-      "description": "Show the total column. Everything carried: uncached input + cache read + cache write + output.",
-      "title": "total column"
+      "description": "Show the billed column. Every call's prompt and output summed: what the API read and wrote, not what the prompt added.",
+      "title": "billed column"
+    },
+    "col_peak": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show the peak column. The largest single call's prompt: uncached input + cache read + cache write. How close the biggest call came to the context limit.",
+      "title": "peak column"
     },
     "col_model": {
       "type": "boolean",

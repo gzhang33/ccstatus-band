@@ -63,6 +63,7 @@ const est = (s: string) => {
 
 const ZERO_TALLY: Tally = {
   out: 0,
+  peak: 0,
   ms: 0,
   modelMs: 0,
   toolMs: 0,
@@ -99,6 +100,7 @@ const rowOf = (s: Snap): Row => ({
   turn: s.turn,
   calls: s.calls,
   total: s.input + s.cached + s.written + s.out,
+  peak: s.peak > 0 ? s.peak : null,
   modelMs: s.modelMs,
   toolMs: s.toolMs,
 })
@@ -118,7 +120,7 @@ const bandOf = (
   open: Cur | null,
   recentSnap: Snap | null,
   prevSnap: Snap | null,
-  extra: { out: number; ms: number; ttftMs: number; modelMs: number },
+  extra: { out: number; ms: number; ttftMs: number; modelMs: number; peak?: number },
   live: { tokPerSec: number } | null,
 ): Band => {
   const running = open !== null || live !== null
@@ -134,6 +136,7 @@ const bandOf = (
     (t.ttftSamples ?? 0) + (open?.ttftSamples ?? 0) + (extra.ttftMs > 0 ? 1 : 0)
   const ttftMax = Math.max(t.ttftMaxMs ?? 0, open?.ttftMaxMs ?? 0, extra.ttftMs)
   const calls = t.calls + (open?.calls ?? 0)
+  const peak = Math.max(t.peak ?? 0, open?.peak ?? 0, extra.peak ?? 0)
   const modelMs = t.modelMs + (open?.modelMs ?? 0) + extra.modelMs
   const toolMs = t.toolMs + (open?.toolMs ?? 0)
 
@@ -149,6 +152,7 @@ const bandOf = (
     turn: prompts,
     calls,
     total: input + cached + written + out,
+    peak: peak > 0 ? peak : null,
     modelMs,
     toolMs,
   }
@@ -172,6 +176,7 @@ const bandOf = (
       turn: prompts,
       calls: open?.calls ?? 0,
       total: counted ? promptTokens + (open?.out ?? 0) + extra.out : null,
+      peak: open?.peak ? open.peak : null,
       modelMs,
       toolMs,
     }
@@ -249,6 +254,7 @@ export const register: Register = (on, options) => {
           await update($, cur, () => ({
             turnId: e.turnId,
             out: 0,
+            peak: 0,
             ms: 0,
             modelMs: 0,
             toolMs: 0,
@@ -303,6 +309,9 @@ export const register: Register = (on, options) => {
     open = {
       turnId: e.turnId,
       out: (open?.out ?? 0) + out,
+      // The call's own prompt, the number that decides whether the next one
+      // still fits: billed totals grow with the call count, this one does not.
+      peak: Math.max(open?.peak ?? 0, counted ? input + cached + written : 0),
       ms: (open?.ms ?? 0) + Math.max(0, last - first),
       modelMs: (open?.modelMs ?? 0) + (counted ? modelMs : 0),
       // Between a call's stop and the next one's request: the tools that ran.
@@ -338,6 +347,7 @@ export const register: Register = (on, options) => {
     const prompt: Cur = { ...(mine ?? {
       turnId: e.turnId,
       out: usage?.output_tokens ?? 0,
+      peak: 0,
       ms: 0,
       modelMs: 0,
       toolMs: 0,
@@ -364,6 +374,8 @@ export const register: Register = (on, options) => {
       prompt.cached = Math.max(prompt.cached, usage?.cache_read_input_tokens ?? 0)
       prompt.written = Math.max(prompt.written, usage?.cache_creation_input_tokens ?? 0)
       prompt.calls = Math.max(prompt.calls, 1)
+      // A prompt that timed no call still states its own prompt size.
+      prompt.peak = Math.max(prompt.peak, (prompt.input ?? 0) + (prompt.cached ?? 0) + (prompt.written ?? 0))
     }
 
     if (prompt.out + prompt.input + prompt.cached + prompt.written === 0) {
@@ -381,6 +393,7 @@ export const register: Register = (on, options) => {
     const before = (await read($, recent)) as Snap | null
     const snap: Snap = {
       out: prompt.out,
+      peak: prompt.peak,
       ms: prompt.ms,
       modelMs: prompt.modelMs,
       toolMs: prompt.toolMs,
@@ -395,6 +408,7 @@ export const register: Register = (on, options) => {
     }
     const sum: Tally = {
       out: t.out + snap.out,
+      peak: Math.max(t.peak, snap.peak),
       ms: t.ms + snap.ms,
       modelMs: t.modelMs + snap.modelMs,
       toolMs: t.toolMs + snap.toolMs,
@@ -436,7 +450,8 @@ export const register: Register = (on, options) => {
         ['hit', 'hit', 'hit'],
         ['turn', 'turn', 'turn'],
         ['calls', 'calls', 'calls'],
-        ['total', 'total', 'total'],
+        ['total', 'total', 'billed'],
+        ['peak', 'peak', 'peak'],
         ['model', 'modelMs', 'model'],
         ['tool', 'toolMs', 'tool'],
       ] as Array<[string, keyof Row, string]>
