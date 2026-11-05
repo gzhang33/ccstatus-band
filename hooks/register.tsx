@@ -458,7 +458,7 @@ export const register: Register = (on, options) => {
         ['hit', 'hit', 'hit'],
         ['turn', 'turn', 'turn'],
         ['calls', 'calls', 'calls'],
-        ['total', 'billed', 'billed'],
+        ['billed', 'billed', 'billed'],
         ['model', 'modelMs', 'model'],
         ['tool', 'toolMs', 'tool'],
       ] as Array<[string, keyof Row, string]>

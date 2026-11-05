@@ -56,7 +56,7 @@
       "description": "Show the calls column. Model calls the prompt made that returned usage.",
       "title": "calls column"
     },
-    "col_total": {
+    "col_billed": {
       "type": "boolean",
       "default": true,
       "description": "Show the billed column. Every call's prompt and output summed: what the API read and wrote, not what the prompt added.",

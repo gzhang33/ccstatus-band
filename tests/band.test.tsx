@@ -240,7 +240,7 @@ test('turn is off by default', { timeoutMs: 15000 }, async ($, on) => {
   expect((await rows($))[0]).toBe('tok/s · ttft · slowest · out · in · hit · calls · billed · model · tool')
 })
 
-test('a switched-off column leaves the table', { timeoutMs: 15000, options: off(['ttft', 'ttftmax', 'hit', 'turn', 'calls', 'total', 'model', 'tool']) }, async ($, on) => {
+test('a switched-off column leaves the table', { timeoutMs: 15000, options: off(['ttft', 'ttftmax', 'hit', 'turn', 'calls', 'billed', 'model', 'tool']) }, async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
   const cost = usage({
     output_tokens: 100,
@@ -256,7 +256,7 @@ test('a switched-off column leaves the table', { timeoutMs: 15000, options: off(
   expect((await rows($))[0]).toBe('tok/s · out · in')
 })
 
-test('with every column off the band draws nothing', { timeoutMs: 15000, options: off(['rate', 'ttft', 'ttftmax', 'out', 'in', 'hit', 'turn', 'calls', 'total', 'model', 'tool']) }, async ($, on) => {
+test('with every column off the band draws nothing', { timeoutMs: 15000, options: off(['rate', 'ttft', 'ttftmax', 'out', 'in', 'hit', 'turn', 'calls', 'billed', 'model', 'tool']) }, async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
   const cost = usage({
     output_tokens: 100,
