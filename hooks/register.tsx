@@ -98,7 +98,7 @@ const rowOf = (s: Snap): Row => ({
   hit: pct(s.cached, s.input + s.cached + s.written),
   turn: s.turn,
   calls: s.calls,
-  total: s.input + s.cached + s.written + s.out,
+  billed: s.input + s.cached + s.written + s.out,
   modelMs: s.modelMs,
   toolMs: s.toolMs,
 })
@@ -109,7 +109,7 @@ const rowOf = (s: Snap): Row => ({
  *
  * `extra` is the reply streaming now, whose counts the API reports only at its
  * stop, so the live and session rows move with the answer instead of appearing
- * when the prompt ends. A running prompt's own counts (`in`, `hit`, `total`)
+ * when the prompt ends. A running prompt's own counts (`in`, `hit`, `billed`)
  * stay unknown until its first call stops, and the row shows a dash there
  * rather than a zero.
  */
@@ -150,7 +150,7 @@ const bandOf = (
     hit: pct(cached, input + cached + written),
     turn: prompts,
     calls,
-    total: input + cached + written + out,
+    billed: input + cached + written + out,
     modelMs,
     toolMs,
   }
@@ -177,7 +177,7 @@ const bandOf = (
       hit: counted ? pct(open?.cached ?? 0, promptTokens) : null,
       turn: prompts,
       calls: open?.calls ?? 0,
-      total: counted ? promptTokens + (open?.out ?? 0) + extra.out : null,
+      billed: counted ? promptTokens + (open?.out ?? 0) + extra.out : null,
       modelMs,
       toolMs,
     }
@@ -456,7 +456,7 @@ export const register: Register = (on, options) => {
         ['hit', 'hit', 'hit'],
         ['turn', 'turn', 'turn'],
         ['calls', 'calls', 'calls'],
-        ['total', 'total', 'billed'],
+        ['total', 'billed', 'billed'],
         ['model', 'modelMs', 'model'],
         ['tool', 'toolMs', 'tool'],
       ] as Array<[string, keyof Row, string]>

@@ -16,7 +16,7 @@ export type Row = {
   /** Model calls the prompt made that returned usage. */
   calls: number | null
   /** Every call's input + cache read + cache write + out, summed: billed, not new. */
-  total: number | null
+  billed: number | null
   /** Wall time spent waiting on model calls: prefill, queueing, generation. */
   modelMs: number | null
   /** Wall time spent running tool calls between them. */
