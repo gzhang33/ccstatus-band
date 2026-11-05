@@ -37,7 +37,7 @@ Every field keeps its column, so you read one column down instead of hunting. Va
 | `model` | Wall time the row spent waiting on the model: request to stop chunk, so prefill, gateway queueing and generation. |
 | `tool` | Wall time the row spent on tool runs: the gaps between one call's stop and the next call's request. |
 
-`billed` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a prompt adds up to 690k. That is the cost, not the context length — `in` is what the prompt added.
+`billed` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a prompt adds up to 690k. That is the cost, not the context length. To see what the prompt *added*, read `billed − cache read`, or switch `usage format` to `anthropic` where `in` is the uncached part alone.
 
 A running prompt's own counts (`in`, `hit`, `billed`) stay `—` until its first call stops: the API reports them at a call's stop and nowhere earlier. The other columns move as the reply streams, and the end of the prompt settles the row on the API's numbers.
 
@@ -54,7 +54,7 @@ The cache hit rate is the same either way: `cache read ÷ the whole prompt`.
 
 ## Columns
 
-Each column is its own switch under **Settings › Plugins › ccstatus-band** (the rows `/config` lists as `ccstatus-band.col_*`). `turn` is off by default; turn it on to see prompt numbers beside `calls`. With every column off the band draws nothing.
+Each column is its own switch under **Settings › Plugins › ccstatus-band** (the rows `/config` lists as `ccstatus-band.col_*`), and `usage_format` sits beside them. `turn` is off by default; turn it on to see prompt numbers beside `calls`. With every column off the band draws nothing.
 
 ## Where the numbers come from
 
@@ -63,7 +63,7 @@ Beyond the estimates on the live row, everything is the API's own accounting, re
 - **Per call, not per prompt.** A prompt is usually several calls (answer → tool → answer). Some gateways report only the last call's usage at `turn.complete`; the band sums every call's `stop` chunk instead, so a row is the whole prompt.
 - **Cache hit rates are high by arithmetic.** A long conversation re-sent on every call is nearly all cache reads: this session's own calls run 98–99.9%, because only the new turn's messages, one tool result or the last answer are uncached. A cache-aware router that rewrites the prefix between calls (DeepSeek's own docs suggest 96% as an expectation) lowers that; the band reports what the gateway returned, not what the provider benchmarks.
 - **Subagents are excluded.** Their steps run their own loop; folding their tokens into the session rate would make it meaningless.
-- **The prompt's own report wins over its calls.** Some gateways state zero usage on every stop chunk and the real counts only at the end of the prompt. Because a prompt is one question, its total is trustworthy there: the band fills any count the calls did not state, so such a session still shows numbers and `last` still fills. Only a prompt that states nothing at all is skipped.
+- **The prompt's own report wins over its calls.** Some gateways state zero usage on every stop chunk and the real counts only at the end of the prompt. Because a prompt is one question, its report is trustworthy there: the band fills any count the calls did not state, so such a session still shows numbers and `last` still fills. Only a prompt that states nothing at all is skipped.
 
 ## Install
 
