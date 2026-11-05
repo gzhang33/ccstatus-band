@@ -7,10 +7,10 @@ A small table above the prompt of the Claude Code desktop app. Three rows: the p
 ![The band above the prompt](assets/band.png)
 
 ```
-     tok/s · ttft · slowest · out ·   in ·   hit · calls · billed · peak · model ·  tool
-live   237 · 3.2s ·   48.9s · 14k · 275k · 98.2% ·    59 ·  16.2M · 255k ·     — · 7m32s
-last   113 · 2.3s ·    2.3s ·  80 · 1.3k · 99.4% ·     1 ·   257k · 129k ·  3.0s ·  0.0s
-sess   239 · 4.1s ·   48.9s · 56k · 520k · 98.9% ·   219 ·  50.9M · 262k ·     — · 7m32s
+     tok/s · ttft · slowest · out ·   in ·   hit · calls · billed · model ·  tool
+live   237 · 3.2s ·   48.9s · 14k · 275k · 98.2% ·    59 ·  16.2M ·     — · 7m32s
+last   113 · 2.3s ·    2.3s ·  80 · 1.3k · 99.4% ·     1 ·   257k ·  3.0s ·  0.0s
+sess   239 · 4.1s ·   48.9s · 56k · 520k · 98.9% ·   219 ·  50.9M ·     — · 7m32s
 ```
 
 Every field keeps its column, so you read one column down instead of hunting. Values are right-aligned on the widest in their column, and no row appears or disappears. The rows use the surface's monospaced face with tabular digits; in a proportional face, padded spaces line nothing up.
@@ -34,13 +34,12 @@ Every field keeps its column, so you read one column down instead of hunting. Va
 | `turn` | Which prompt of the session this was, counting from 1. Off by default. |
 | `calls` | Model calls the prompt made that returned usage: one prompt is usually several calls (answer → tool → answer), and a call that never got its usage (an interrupt) counts as none. |
 | `billed` | Every call's prompt and output summed: uncached input + cache reads + cache writes + output. Throughput, not new content — 59 calls over a 255k context bill 16M. |
-| `peak` | The largest single call's prompt. This decides whether the next call still fits the window; it does not grow with the call count. |
 | `model` | Wall time the row spent waiting on the model: request to stop chunk, so prefill, gateway queueing and generation. |
 | `tool` | Wall time the row spent on tool runs: the gaps between one call's stop and the next call's request. |
 
-`billed` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a prompt adds up to 690k. That is the cost, not the context length — `in` is what the prompt added, `peak` is how big the biggest request got.
+`billed` counts what the API was asked to read, not what is new: one 138k conversation sent five times in a prompt adds up to 690k. That is the cost, not the context length — `in` is what the prompt added.
 
-A running prompt's own counts (`in`, `hit`, `billed`, `peak`) stay `—` until its first call stops: the API reports them at a call's stop and nowhere earlier. The other columns move as the reply streams, and the end of the prompt settles the row on the API's numbers.
+A running prompt's own counts (`in`, `hit`, `billed`) stay `—` until its first call stops: the API reports them at a call's stop and nowhere earlier. The other columns move as the reply streams, and the end of the prompt settles the row on the API's numbers.
 
 `live`'s `tok/s` and `out` are the only estimates. The API reports a response's token counts once, in its last chunk, so mid-stream there is nothing to count; the band counts CJK characters as one token and everything else as a quarter, then replaces the estimate with the API's own numbers when the response ends. It is good enough to watch, not to reconcile against a bill.
 

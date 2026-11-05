@@ -17,8 +17,6 @@ export type Row = {
   calls: number | null
   /** Every call's input + cache read + cache write + out, summed: billed, not new. */
   total: number | null
-  /** The largest single call's prompt: uncached input + cache read + cache write. */
-  peak: number | null
   /** Wall time spent waiting on model calls: prefill, queueing, generation. */
   modelMs: number | null
   /** Wall time spent running tool calls between them. */
@@ -38,8 +36,6 @@ export type Band = {
 
 export type Tally = {
   out: number
-  /** Largest single call's prompt in the row, for the peak column. */
-  peak: number
   ms: number
   modelMs: number
   toolMs: number
@@ -57,7 +53,6 @@ export type Tally = {
 /** A finished prompt, kept for the live and last rows. */
 export type Snap = {
   out: number
-  peak: number
   ms: number
   modelMs: number
   toolMs: number
@@ -76,7 +71,6 @@ export type Snap = {
 export type Cur = {
   turnId: string
   out: number
-  peak: number
   ms: number
   modelMs: number
   toolMs: number
