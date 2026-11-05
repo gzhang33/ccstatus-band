@@ -73,6 +73,16 @@
       "default": true,
       "description": "Show the tool column. Wall time spent running tool calls between model calls.",
       "title": "tool column"
+    },
+    "usage_format": {
+      "type": "string",
+      "default": "openai",
+      "options": [
+        "openai",
+        "anthropic"
+      ],
+      "title": "usage format",
+      "description": "How the gateway counts prompt tokens. openai: input_tokens already includes the cache-read part, so in + out reconciles with billed. anthropic: input_tokens is only the uncached part and is shown as such."
     }
   }
 }

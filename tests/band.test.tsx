@@ -91,18 +91,18 @@ test('live is this prompt, last is the one before, sess is all', { timeoutMs: 15
 
   const one = await rows($)
   expect(one[0]).toBe('tok/s · ttft · slowest · out · in · hit · calls · billed · model · tool')
-  expect(one[1]).toMatch(/^live [\d.]+ · — · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(one[1]).toMatch(/^live [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
   expect(one[2]).toBe('last ' + '— · '.repeat(9) + '—')
-  expect(one[3]).toMatch(/^sess [\d.]+ · — · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(one[3]).toMatch(/^sess [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · (?:[\d.]+s|—) · 0\.0s$/)
 
   cost = second
   await runStep($, 'p2')
   await finish($, 'p2', second)
 
   const two = await rows($)
-  expect(two[1]).toMatch(/^live [\d.]+ · — · — · 200 · 500 · 80\.0% · 1 · 5\.2k · (?:[\d.]+|—) · 0\.0s$/)
-  expect(two[2]).toMatch(/^last [\d.]+ · — · — · 400 · 1k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
-  expect(two[3]).toMatch(/^sess [\d.]+ · — · — · 600 · 1\.5k · 80\.0% · 2 · 16k · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(two[1]).toMatch(/^live [\d.]+ · — · — · 200 · 5k · 80\.0% · 1 · 5\.2k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(two[2]).toMatch(/^last [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(two[3]).toMatch(/^sess [\d.]+ · — · — · 600 · 15k · 80\.0% · 2 · 16k · (?:[\d.]+s|—) · 0\.0s$/)
 })
 
 test('a running prompt shows what it knows and a dash for the rest', { timeoutMs: 15000 }, async ($, on) => {
@@ -339,4 +339,30 @@ test('a gateway that counts only at turn.complete still fills the rows', { timeo
   const two = await rows($)
   expect(two[2]).toMatch(/^last [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k/)
   expect(two[3]).toMatch(/^sess [\d.]+ · — · — · 200 · 1\.8k · 0\.0% · 2 · 2k/)
+})
+
+const runOne = async ($: any, on: any) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const cost = usage({
+    output_tokens: 100,
+    input_tokens: 900,
+    cache_read_input_tokens: 4000,
+    cache_creation_input_tokens: 0,
+  })
+  on('turn.step', call(clock, cost, 1000))
+  on('turn.complete', ($: any, e: any) => ({ text: e.answer, usage: e.usage }))
+  await runStep($, 'p1')
+  await finish($, 'p1', cost)
+  return (await rows($))[1]
+}
+
+test('openai: in is the whole prompt, so in + out = billed', { timeoutMs: 15000 }, async ($, on) => {
+  const live = await runOne($, on)
+  // 900 uncached + 4k cache read = 4.9k prompt, 100 out, billed 5k.
+  expect(live).toMatch(/^live [\d.]+ · — · — · 100 · 4\.9k · 81\.6% · 1 · 5k/)
+})
+
+test('anthropic: in is only the uncached part', { timeoutMs: 15000, options: { usage_format: 'anthropic' } }, async ($, on) => {
+  const live = await runOne($, on)
+  expect(live).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 81\.6% · 1 · 5k/)
 })

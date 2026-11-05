@@ -94,7 +94,7 @@ const rowOf = (s: Snap): Row => ({
   ttftMs: meanOf(s).mean,
   ttftMaxMs: meanOf(s).max,
   out: s.out,
-  input: s.input,
+  input: inclusiveInputNow() ? s.input + s.cached + s.written : s.input,
   hit: pct(s.cached, s.input + s.cached + s.written),
   turn: s.turn,
   calls: s.calls,
@@ -144,7 +144,9 @@ const bandOf = (
     ttftMs: ttftSamples > 0 ? ttft / ttftSamples : null,
     ttftMaxMs: ttftMax > 0 ? ttftMax : null,
     out,
-    input,
+    // Under the OpenAI convention `in` is the whole prompt, so it is stated as
+    // `billed - out`: cache reads, cache writes and uncached input together.
+    input: inclusiveInputNow() ? input + cached + written : input,
     hit: pct(cached, input + cached + written),
     turn: prompts,
     calls,
@@ -152,7 +154,6 @@ const bandOf = (
     modelMs,
     toolMs,
   }
-
   let liveRow: Row | null
   if (running) {
     // Until this prompt's first call stops, its prompt counts are unknown.
@@ -167,7 +168,12 @@ const bandOf = (
           : null,
       ttftMaxMs: Math.max(open?.ttftMaxMs ?? 0, extra.ttftMs) || null,
       out: (open?.out ?? 0) + extra.out,
-      input: counted ? (open?.input ?? 0) : null,
+      // The streamed row counts the same way the settled one does.
+      input: counted
+        ? inclusiveInputNow()
+          ? promptTokens
+          : open?.input ?? 0
+        : null,
       hit: counted ? pct(open?.cached ?? 0, promptTokens) : null,
       turn: prompts,
       calls: open?.calls ?? 0,
@@ -187,7 +193,21 @@ const bandOf = (
   }
 }
 
+// How the gateway counts a prompt's tokens. OpenAI-compatible gateways report
+// `input_tokens` as the whole prompt, cache reads included; Anthropic reports
+// only the part that missed the cache. Everything inside sums the exclusive
+// form, so only the displayed `in` differs: under `openai` the cache reads are
+// added back, and `in + out` reconciles with `billed`.
+// Read inside the hooks, not once at register: the render hook must agree with
+// the row builder even when the module is loaded before its options settle.
+let usageFormat: string | undefined
+const inclusiveInputNow = () => usageFormat !== 'anthropic'
+
 export const register: Register = (on, options) => {
+  // The manifest defaults to the OpenAI convention, which is what a
+  // DeepSeek/OpenAI-compatible gateway under an Anthropic shim reports.
+  usageFormat = options.usage_format as string | undefined
+
   on('session.start', async ($, e, next) => {
     seq = -1
     return next(e)
