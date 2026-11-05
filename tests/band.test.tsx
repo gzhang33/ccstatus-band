@@ -366,3 +366,29 @@ test('anthropic: in is only the uncached part', { timeoutMs: 15000, options: { u
   const live = await runOne($, on)
   expect(live).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 81\.6% · 1 · 5k/)
 })
+
+test('the second prompt counts from its own first call, so last fills', { timeoutMs: 15000 }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const cost = usage({
+    output_tokens: 100,
+    input_tokens: 900,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  })
+  on('turn.step', call(clock, cost, 1000))
+  on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+
+  await runStep($, 'p1')
+  await finish($, 'p1', cost)
+
+  // The second prompt's first call is index 0 again: the seed used to skip it,
+  // so this prompt had no open turn and its `last` stayed empty.
+  await runStep($, 'p2')
+  expect((await rows($))[1]).toMatch(/^live /)
+  await finish($, 'p2', cost)
+
+  const two = await rows($)
+  expect(two[1]).toMatch(/· 100 · 900 · /)
+  expect(two[2]).toMatch(/^last [\d.]+ · .* · 100 · 900 · /)
+  expect(two[3]).toMatch(/^sess [\d.]+ · .* · 200 · 1\.8k · /)
+})

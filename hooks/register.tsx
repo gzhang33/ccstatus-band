@@ -8,7 +8,8 @@ const tally = atom({ plugin: 'ccstatus-band', key: 'tally' } as const, null)
 const cur = atom({ plugin: 'ccstatus-band', key: 'cur' } as const, null)
 const recent = atom({ plugin: 'ccstatus-band', key: 'recent' } as const, null)
 const prev = atom({ plugin: 'ccstatus-band', key: 'prev' } as const, null)
-let seq = 0
+// The prompt whose open turn this module seeded, keyed by its id.
+let seq = ''
 
 // Decode-only throughput, the way inference benchmarks report it: generated
 // tokens over the span from the first generated chunk to the stop chunk, so
@@ -209,7 +210,7 @@ export const register: Register = (on, options) => {
   usageFormat = options.usage_format as string | undefined
 
   on('session.start', async ($, e, next) => {
-    seq = -1
+    seq = ''
     return next(e)
   })
 
@@ -261,11 +262,12 @@ export const register: Register = (on, options) => {
         first = now
         ttftMs = Math.max(0, (await $.clock.now()) - askedAt)
         // The session's first call has no prompt open yet: count from its first
-        // chunk, so its rate is not measured from the day's epoch. ponytail:
-        // keyed on the call's index, since a hook cannot tell a stale prompt id
-        // from this one while only writing; reset on session start.
-        if (!curTurn && seq !== e.index) {
-          seq = e.index
+        // chunk, so its rate is not measured from the day's epoch. Keyed on the
+        // prompt id, not on the call index: every prompt's first call is index
+        // 0, so an index guard fired once per session and left every later
+        // prompt with no open turn at all (`last` never filled).
+        if (!curTurn && seq !== e.turnId) {
+          seq = e.turnId
           await update($, cur, () => ({
             turnId: e.turnId,
             out: 0,
