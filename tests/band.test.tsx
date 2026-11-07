@@ -91,7 +91,7 @@ test('live is this prompt, last is the one before, sess is all', { timeoutMs: 15
 
   const one = await rows($)
   expect(one[0]).toBe('tok/s · ttft · slowest · out · in · hit · calls · billed · model · tool')
-  expect(one[1]).toMatch(/^live [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(one[1]).toMatch(/^live [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · [\d.]+s · 0\.0s$/)
   expect(one[2]).toBe('last ' + '— · '.repeat(9) + '—')
   expect(one[3]).toMatch(/^sess [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · (?:[\d.]+s|—) · 0\.0s$/)
 
@@ -100,8 +100,8 @@ test('live is this prompt, last is the one before, sess is all', { timeoutMs: 15
   await finish($, 'p2', second)
 
   const two = await rows($)
-  expect(two[1]).toMatch(/^live [\d.]+ · — · — · 200 · 5k · 80\.0% · 1 · 5\.2k · (?:[\d.]+|—) · 0\.0s$/)
-  expect(two[2]).toMatch(/^last [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(two[1]).toMatch(/^live [\d.]+ · — · — · 200 · 5k · 80\.0% · 1 · 5\.2k · [\d.]+s · 0\.0s$/)
+  expect(two[2]).toMatch(/^last [\d.]+ · — · — · 400 · 10k · 80\.0% · 1 · 10k · [\d.]+s · 0\.0s$/)
   expect(two[3]).toMatch(/^sess [\d.]+ · — · — · 600 · 15k · 80\.0% · 2 · 16k · (?:[\d.]+s|—) · 0\.0s$/)
 })
 
@@ -138,7 +138,7 @@ test('a running prompt shows what it knows and a dash for the rest', { timeoutMs
 
   const running = await rows($)
   // Prompt counts are unknown until this call's stop: dashes, not zeros.
-  expect(running[1]).toMatch(/^live [\d.]+ · — · — · 2 · — · — · 0 · — · — · 0\.0s$/)
+  expect(running[1]).toMatch(/^live [\d.]+ · — · — · 2 · — · — · 0 · — · 0\.0s · 0\.0s$/)
   expect(running[2]).toBe('last ' + '— · '.repeat(9) + '—')
   expect(running[3]).toMatch(/^sess [\d.]+ · — · — · 2 · 0 · 0\.0% · 0 · 2 · (?:[\d.]+s|—) · 0\.0s$/)
 
@@ -147,7 +147,7 @@ test('a running prompt shows what it knows and a dash for the rest', { timeoutMs
   await finish($, 'p1', cost)
 
   const done = await rows($)
-  expect(done[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(done[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · [\d.]+s · 0\.0s$/)
   expect(done[3]).toMatch(/^sess [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+s|—) · 0\.0s$/)
 })
 
@@ -174,7 +174,7 @@ test('a prompt with nothing counted leaves the band alone', { timeoutMs: 15000 }
   await finish($, 'p2', nothing)
 
   const after = await rows($)
-  expect(after[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+|—) · 0\.0s$/)
+  expect(after[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · [\d.]+s · 0\.0s$/)
   expect(after[3]).toMatch(/· 1 · 1k · /)
 })
 
@@ -391,4 +391,38 @@ test('the second prompt counts from its own first call, so last fills', { timeou
   expect(two[1]).toMatch(/· 100 · 900 · /)
   expect(two[2]).toMatch(/^last [\d.]+ · .* · 100 · 900 · /)
   expect(two[3]).toMatch(/^sess [\d.]+ · .* · 200 · 1\.8k · /)
+})
+
+test('tok/s counts the wait before the first chunk, so a big prompt reads slow', { timeoutMs: 15000 }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const cost = usage({
+    output_tokens: 100,
+    input_tokens: 900,
+    cache_read_input_tokens: 100000,
+    cache_creation_input_tokens: 0,
+  })
+  on('turn.step', async function* ($, e) {
+    // 8s of prefill, then 100 tokens over 2s of decode.
+    await clock.advance(8000)
+    yield { kind: 'text', index: 0, text: 'x'.repeat(400) }
+    await clock.advance(2000)
+    yield { kind: 'stop', stopReason: 'end_turn', usage: cost }
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: 'x',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: cost,
+    }
+  })
+  on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+
+  await runStep($, 'p1')
+  await finish($, 'p1', cost)
+
+  // End to end: 100 output tokens over 10s (8s prefill + 2s decode) is 10 tok/s.
+  // Decode-only would read 50 and hide the prefill that made the reply slow.
+  const live = (await rows($))[1]
+  expect(live).toMatch(/^live 10 · /)
 })

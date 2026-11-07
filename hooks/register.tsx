@@ -15,7 +15,13 @@ let seq = ''
 // tokens over the span from the first generated chunk to the stop chunk, so
 // prefill (TTFT) and tool execution stay out of the rate. Under 100ms the span
 // is too short to mean anything and is left at zero.
-const rate = (tokens: number, ms: number) => (ms >= 100 ? (tokens / ms) * 1000 : 0)
+// End-to-end throughput: every token the row generated over every millisecond
+// its calls spent on the model, prefill included. Measuring from the first
+// chunk alone (decode only) is what a short reply makes useless: 100 tokens in
+// a 400ms window and the same reply in a 900ms one read 250 vs 111 tok/s on
+// noise no one can act on. `ms` is therefore the model time, and a window
+// under a second is left unknown rather than reported as a wild ratio.
+const rate = (tokens: number, ms: number) => (ms >= 1000 ? (tokens / ms) * 1000 : 0)
 // Whole-percent rounding collapses every real hit above 99.5 to "100", so the
 // value is floored to a decimal: 99.96 reads 99.9, and 100 means every prompt
 // token was a cache read. One uncached token in 163k still reads 99.9.
@@ -89,7 +95,7 @@ const meanOf = (s: Snap | Cur) => {
 
 /** A finished prompt as a row. */
 const rowOf = (s: Snap): Row => ({
-  rate: rate(s.out, s.ms),
+  rate: rate(s.out, s.modelMs),
   // A zero wait is not a measurement: the clock did not separate the request
   // from its first chunk.
   ttftMs: meanOf(s).mean,
@@ -139,7 +145,7 @@ const bandOf = (
   const toolMs = t.toolMs + (open?.toolMs ?? 0)
 
   const sess: Row = {
-    rate: rate(out, ms),
+    rate: rate(out, modelMs),
     // The session's mean is over calls, not over prompts: a prompt with 40
     // calls says more about the wait than one with a single call.
     ttftMs: ttftSamples > 0 ? ttft / ttftSamples : null,
@@ -161,7 +167,7 @@ const bandOf = (
     const counted = (open?.calls ?? 0) > 0
     const promptTokens = (open?.input ?? 0) + (open?.cached ?? 0) + (open?.written ?? 0)
     liveRow = {
-      rate: live ? live.tokPerSec : rate((open?.out ?? 0) + extra.out, (open?.ms ?? 0) + extra.ms),
+      rate: live ? live.tokPerSec : rate((open?.out ?? 0) + extra.out, (open?.modelMs ?? 0) + extra.modelMs),
       ttftMs:
         (open?.ttftSamples ?? 0) + (extra.ttftMs > 0 ? 1 : 0) > 0
           ? ((open?.ttftMs ?? 0) + extra.ttftMs) /
@@ -292,7 +298,9 @@ export const register: Register = (on, options) => {
 
       if (c.kind === 'stop') {
         last = now
-        modelMs = Math.max(0, now - askedAt)
+        // The host clock, matching `askedAt`: two reads per call, and the one
+        // the tests drive. `Date.now()` here would make every test measure zero.
+        modelMs = Math.max(0, (await $.clock.now()) - askedAt)
         counted = c.usage !== null
         out = c.usage?.output_tokens ?? 0
         input = c.usage?.input_tokens ?? 0
@@ -300,8 +308,8 @@ export const register: Register = (on, options) => {
         written = c.usage?.cache_creation_input_tokens ?? 0
       } else if (first && now - shownAt >= 250) {
         shownAt = now
-        const live = { tokPerSec: rate(streamed, now - first) }
-        const next2 = bandOf(done, open, recentSnap, prevSnap, { out: streamed, ms: now - first, ttftMs, modelMs: now - askedAt }, live)
+        const live = { tokPerSec: rate(streamed, (await $.clock.now()) - askedAt) }
+        const next2 = bandOf(done, open, recentSnap, prevSnap, { out: streamed, ms: now - first, ttftMs, modelMs: (await $.clock.now()) - askedAt }, live)
         await update($, band, () => next2)
       }
 
