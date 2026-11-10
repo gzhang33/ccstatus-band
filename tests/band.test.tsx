@@ -138,17 +138,17 @@ test('a running prompt shows what it knows and a dash for the rest', { timeoutMs
 
   const running = await rows($)
   // Prompt counts are unknown until this call's stop: dashes, not zeros.
-  expect(running[1]).toMatch(/^live [\d.]+ · — · — · 2 · — · — · 0 · — · 0\.0s · 0\.0s$/)
+  expect(running[1]).toMatch(/^live (—|[\d.]+) · — · — · 2 · — · — · 0 · — · 0\.0s · 0\.0s$/)
   expect(running[2]).toBe('last ' + '— · '.repeat(9) + '—')
-  expect(running[3]).toMatch(/^sess [\d.]+ · — · — · 2 · 0 · 0\.0% · 0 · 2 · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(running[3]).toMatch(/^sess (—|[\d.]+) · — · — · 2 · 0 · 0\.0% · 0 · 2 · (?:[\d.]+s|—) · 0\.0s$/)
 
   release()
   while (!(await it.next()).done) void 0
   await finish($, 'p1', cost)
 
   const done = await rows($)
-  expect(done[1]).toMatch(/^live [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · [\d.]+s · 0\.0s$/)
-  expect(done[3]).toMatch(/^sess [\d.]+ · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+s|—) · 0\.0s$/)
+  expect(done[1]).toMatch(/^live (—|[\d.]+) · — · — · 100 · 900 · 0\.0% · 1 · 1k · [\d.]+s · 0\.0s$/)
+  expect(done[3]).toMatch(/^sess (—|[\d.]+) · — · — · 100 · 900 · 0\.0% · 1 · 1k · (?:[\d.]+s|—) · 0\.0s$/)
 })
 
 test('a prompt with nothing counted leaves the band alone', { timeoutMs: 15000 }, async ($, on) => {
@@ -425,4 +425,35 @@ test('tok/s counts the wait before the first chunk, so a big prompt reads slow',
   // Decode-only would read 50 and hide the prefill that made the reply slow.
   const live = (await rows($))[1]
   expect(live).toMatch(/^live 10 · /)
+})
+
+test('a fast call reads its rate, not zero', { timeoutMs: 15000 }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const cost = usage({
+    output_tokens: 80,
+    input_tokens: 900,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  })
+  on('turn.step', async function* ($, e) {
+    yield { kind: 'text', index: 0, text: 'x' }
+    await clock.advance(600)
+    yield { kind: 'stop', stopReason: 'end_turn', usage: cost }
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: 'x',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: cost,
+    }
+  })
+  on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+
+  await runStep($, 'p1')
+  await finish($, 'p1', cost)
+
+  // 80 tokens over 600ms is 133 tok/s. A one-second floor reported 0 here,
+  // which states the opposite of what happened.
+  expect((await rows($))[1]).toMatch(/^live 133 · /)
 })

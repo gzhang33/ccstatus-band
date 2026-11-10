@@ -25,7 +25,7 @@ Every field keeps its column, so you read one column down instead of hunting. Va
 
 | Column | Meaning |
 | --- | --- |
-| `tok/s` | End-to-end throughput: output tokens over the time the calls spent on the model, prefill and queueing included. A window under a second reads `0`, so short replies do not produce noise ratios. While a reply streams it is **estimated** from the characters received (see below). Tool runs are still left out. |
+| `tok/s` | End-to-end throughput: output tokens over the time the calls spent on the model, prefill and queueing included. A window under 250ms reads `—`: too short to time, so the row states no value rather than a wrong one. While a reply streams it is **estimated** from the characters received (see below). Tool runs are still left out. |
 | `ttft` | **Mean** wait per model call before its first generated chunk: prefill plus whatever the gateway spent queueing it. Divided by the calls that were actually timed, not by every call. |
 | `slowest` | The longest of those waits. One call stuck behind a gateway queue moves this far from `ttft`, which the mean hides; when the two match, the row was one call. |
 | `out` | Generated tokens. |

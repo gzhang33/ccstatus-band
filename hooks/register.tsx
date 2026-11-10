@@ -16,12 +16,13 @@ let seq = ''
 // prefill (TTFT) and tool execution stay out of the rate. Under 100ms the span
 // is too short to mean anything and is left at zero.
 // End-to-end throughput: every token the row generated over every millisecond
-// its calls spent on the model, prefill included. Measuring from the first
-// chunk alone (decode only) is what a short reply makes useless: 100 tokens in
-// a 400ms window and the same reply in a 900ms one read 250 vs 111 tok/s on
-// noise no one can act on. `ms` is therefore the model time, and a window
-// under a second is left unknown rather than reported as a wild ratio.
-const rate = (tokens: number, ms: number) => (ms >= 1000 ? (tokens / ms) * 1000 : 0)
+// its calls spent on the model, prefill included. A window this short is not
+// noise, it is a fast call: 80 tokens in 600ms is 133 tok/s. Reporting 0 there
+// states the opposite of what happened, so the row shows `—` instead — a
+// missing value, not a wrong one.
+const MIN_WINDOW_MS = 250
+const rate = (tokens: number, ms: number): number | null =>
+  ms >= MIN_WINDOW_MS ? (tokens / ms) * 1000 : null
 // Whole-percent rounding collapses every real hit above 99.5 to "100", so the
 // value is floored to a decimal: 99.96 reads 99.9, and 100 means every prompt
 // token was a cache read. One uncached token in 163k still reads 99.9.
@@ -126,7 +127,7 @@ const bandOf = (
   recentSnap: Snap | null,
   prevSnap: Snap | null,
   extra: { out: number; ms: number; ttftMs: number; modelMs: number },
-  live: { tokPerSec: number } | null,
+  live: { tokPerSec: number | null } | null,
 ): Band => {
   const running = open !== null || live !== null
   const prompts = t.prompts + (running ? 1 : 0)
@@ -167,7 +168,9 @@ const bandOf = (
     const counted = (open?.calls ?? 0) > 0
     const promptTokens = (open?.input ?? 0) + (open?.cached ?? 0) + (open?.written ?? 0)
     liveRow = {
-      rate: live ? live.tokPerSec : rate((open?.out ?? 0) + extra.out, (open?.modelMs ?? 0) + extra.modelMs),
+      rate: live
+        ? live.tokPerSec
+        : rate((open?.out ?? 0) + extra.out, (open?.modelMs ?? 0) + extra.modelMs),
       ttftMs:
         (open?.ttftSamples ?? 0) + (extra.ttftMs > 0 ? 1 : 0) > 0
           ? ((open?.ttftMs ?? 0) + extra.ttftMs) /
